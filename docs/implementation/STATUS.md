@@ -1,7 +1,51 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-08-01
-Rama: `mdev/01-rework2`
+Actualizado: 2026-08-07
+Rama: `codex/consolidacion-oracle-20260806` @ `fec3c3e` (canal `oracle-dev`)
+
+
+## Consolidación SV2 y Oracle Dev · snapshot verificable (2026-08-07)
+
+- Fuente del snapshot: `fec3c3ee2d10cb375a6753e5d3e33ee2210a766e`, publicado en
+  `origin/oracle-dev` y desplegado solo en **Oracle Dev** como
+  `20260807T001643Z-native-fec3c3e`.
+- Verificación read-only del 2026-08-07: `opn-oracle-api`, `opn-oracle-web`,
+  `opn-oracle-worker` y `opn-oracle-beat` activos; readiness devuelve DB/Redis `ok`.
+- Signal Dev está en `abc8caf`, con API/worker/beat activos y consumer base efectivo
+  `64|opn-oracle-dev`. Su catálogo efectivo contiene 30 tareas `local-only` sobre
+  `ollama_titan/qwen3-coder:30b`, sin fallback, proveedor cloud ni logging de prompts/respuestas;
+  el smoke de `memory_extraction` devolvió HTTP 200 y coste 0. Oracle Dev usa
+  `MEMORY_CONTEXT_MODE=http`, base HTTPS de Signal Dev y outbox bilateral habilitado.
+- Memoria dual: el consolidado ya contiene retrieve tenant-safe, adapter HTTP, materialización
+  citable de Ask, vigilancia/Actividad, ciclo durable de informe y preflight/timeout de
+  MDEV-06…09. El endpoint público `/api/v1/memory/v1/retrieve` existe y rechaza sin credencial
+  con 401; no se publica ni registra ninguna clave.
+- Validación registrada del candidato: suite Oracle **1850 passed, 0 failed**, cobertura
+  **84.12%**; recorrido Playwright de demo real **1/1**; validador legal **PASS** sobre 9
+  documentos y sus 2 pruebas. El gate API fail-closed está integrado desde `044e35a` y su
+  regresión demuestra que un fallo aborta el build antes de materializar el release.
+- Retención documental: `fec3c3e` aísla la transacción por tenant, añade la regresión asociada y
+  el job real de retención volvió a finalizar en verde en Oracle Dev.
+- El pack comercial y de cumplimiento documental de `8af7150` ya forma parte del HEAD desplegado;
+  aporta materiales de venta honestos, pero no sustituye las decisiones humanas de precio,
+  identidad legal o revisión jurídica.
+- Brechas funcionales consolidadas en este SHA: higiene del worktree; SHA de release atribuible;
+  solvencia declarable; citas y estados honestos; borrador de oferta editable + DOCX; ciclo de
+  oferta; fallback de pliego; criterios/umbrales; E2E real; identidad fiscal y fusión de duplicados;
+  contexto balanceado; perfil de memoria efectivo; onboarding de Signal y precisión de búsqueda.
+- Estado `ORC-MEM-001`: **under_review (80%)**, no finalizado. El golden path positivo de un
+  tenant terminó **6/6** a las 02:52 Europe/Madrid: Preguntar devolvió 5 citas, el informe HTTP
+  200 y los contadores observados fueron `jobs=0` y coste 0. AC-3 sigue parcial y MDEV-11 sigue
+  pendiente porque la matriz A/B de aislamiento cross-tenant no puede ejecutarse sin dos fixtures
+  aislados; también falta la medición autorizada sobre un expediente real.
+- Estado `ORC-QA-001`: el blocker E2E y el blocker del gate fail-closed están cerrados, pero la
+  funcionalidad permanece `under_review` hasta conservar evidencia reproducible de la matriz
+  completa por release.
+- El snapshot funcional usa únicamente los SHAs desplegados indicados; los cambios documentales
+  locales sin commit no se usan como evidencia de producto.
+- **Producción no se modificó ni se valida por inferencia desde Dev.** No se habilitaron
+  proveedores de pago. Permanecen humanas las decisiones de precio/posicionamiento, datos legales,
+  revisión jurídica y autorización de un expediente real.
 
 
 ## MDEV-06 REWORK-1 (2026-08-02)

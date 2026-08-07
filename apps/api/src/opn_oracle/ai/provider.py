@@ -31,6 +31,27 @@ class AIUnavailable(RuntimeError):
     pass
 
 
+class AIRejected(AIUnavailable):
+    """Signal reached the provider but rejected the resulting governed output.
+
+    Carries only safe, bounded identifiers from Signal's error envelope. Raw model
+    output and ``error_detail`` are deliberately not propagated across this boundary.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int,
+        error_code: str,
+        request_id: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = int(status_code)
+        self.error_code = error_code
+        self.request_id = request_id
+
+
 @dataclass(frozen=True, slots=True)
 class LLMRequest:
     agent: str
@@ -2166,6 +2187,37 @@ class SignalGovernedLLMProvider:
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 timeout=self.timeout_seconds,
             )
+            if response.status_code == 422:
+                error_payload: dict[str, Any] = {}
+                try:
+                    parsed = response.json()
+                    if isinstance(parsed, dict):
+                        error_payload = parsed
+                except ValueError:
+                    pass
+                # Signal's 422 contract redacts raw provider output. Even so, only
+                # propagate identifier-shaped fields; never error_detail/result.
+                raw_code = str(error_payload.get("error") or "output_validation_failed")
+                error_code = (
+                    "".join(char for char in raw_code if char.isalnum() or char in "._:-")[:120]
+                    or "output_validation_failed"
+                )
+                raw_request_id = str(
+                    error_payload.get("request_id") or error_payload.get("run_id") or ""
+                )
+                request_id = (
+                    "".join(char for char in raw_request_id if char.isalnum() or char in "._:-")[
+                        :120
+                    ]
+                    or None
+                )
+                suffix = f"; request_id={request_id}" if request_id else ""
+                raise AIRejected(
+                    f"Signal rechazó la salida IA ({error_code}; HTTP 422{suffix}).",
+                    status_code=422,
+                    error_code=error_code,
+                    request_id=request_id,
+                )
             if response.status_code == 403:
                 detail = ""
                 try:

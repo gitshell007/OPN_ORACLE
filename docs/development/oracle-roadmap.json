@@ -4,10 +4,10 @@
     "id": "ORC-PROJ-001",
     "name": "OPN Oracle",
     "description": "Plataforma de inteligencia estratégica que convierte cada expediente importante en un radar vivo de señales, oportunidades, riesgos, actores, reuniones, decisiones e informes trazables.",
-    "version": "audit-2026-08-01-mdev00",
+    "version": "consolidated-dev-2026-08-07-fec3c3e",
     "created_at": "2026-07-31",
-    "updated_at": "2026-08-01",
-    "progress_percent": 75,
+    "updated_at": "2026-08-07",
+    "progress_percent": 77,
     "business_objectives": [
       "Convertir señales y documentación dispersas en acciones estratégicas trazables.",
       "Dar continuidad a la memoria de expedientes, actores, reuniones y decisiones.",
@@ -36,9 +36,9 @@
       "Prometer cobertura nominal exhaustiva de participantes de licitaciones sin evidencia de la fuente."
     ],
     "audit": {
-      "date": "2026-07-31",
-      "branch_observed": "oracle-dev",
-      "working_tree_note": "Hay cambios funcionales sin commitear pertenecientes a otra sesión. No se usan como evidencia exclusiva ni se incluyen en el cambio de gobernanza.",
+      "date": "2026-08-07",
+      "branch_observed": "codex/consolidacion-oracle-20260806 @ fec3c3e (oracle-dev)",
+      "working_tree_note": "El snapshot funcional usa Oracle fec3c3e (release Dev 20260807T001643Z-native-fec3c3e) y Signal Dev abc8caf. Los cambios documentales locales sin commit no se usan como evidencia de producto.",
       "confidence_legend": {
         "high": "Comprobado en código, prueba o artefacto versionado.",
         "medium": "Parcialmente comprobado: existe implementación o documentación, pero falta una verificación o integración.",
@@ -62,9 +62,14 @@
         "evidence": ["src/app/app/layout.tsx", "packages/api-client/src/generated/schema.ts", "docs/architecture/REPOSITORY_MAP.md"]
       },
       {
-        "classification": "parcialmente_comprobado",
-        "statement": "Signal, IA y documentos tienen adaptadores, contratos y pruebas, pero el despliegue de oracle-dev observado los mantiene deshabilitados o limitado por configuración.",
-        "evidence": ["apps/api/src/opn_oracle/integrations/signal_avanza.py", "apps/api/src/opn_oracle/ai/service.py", "apps/api/src/opn_oracle/documents/routes.py", "docs/implementation/STATUS.md"]
+        "classification": "comprobado",
+        "statement": "Oracle Dev ejecuta el release fec3c3e con memoria HTTP hacia Signal Dev abc8caf, salida bilateral habilitada y consumer base efectivo 64|opn-oracle-dev; el catálogo de 30 tareas es local-only sobre Titan sin fallback, cloud ni logging de prompts/respuestas. Esta observación no se extrapola a producción.",
+        "evidence": ["apps/api/src/opn_oracle/integrations/memory_context.py", "apps/api/src/opn_oracle/integrations/memory_ask_dual.py", "apps/api/src/opn_oracle/oracle/custom_report_lifecycle.py", "docs/implementation/STATUS.md"]
+      },
+      {
+        "classification": "comprobado",
+        "statement": "La suite Oracle registra 1850 passed y 84.12% de cobertura; el gate API fail-closed está integrado, la retención por tenant está corregida y su job real termina en verde. El golden path positivo de un tenant pasa 6/6, pero MDEV-11 sigue abierto por la matriz A/B cross-tenant sin fixtures aislados.",
+        "evidence": ["apps/api/tests/test_native_release_api_gate.py", "apps/api/tests/test_integration_oracle_domain.py", "apps/api/src/opn_oracle/documents/tasks.py", "docs/implementation/STATUS.md"]
       },
       {
         "classification": "comprobado",
@@ -145,11 +150,11 @@
       "name": "Documentos, evidencias e IA",
       "description": "Carga segura, parsing, chunks, evidencia citable, proveedores IA, auditoría y revisión humana.",
       "status": "under_review",
-      "progress_percent": 60,
+      "progress_percent": 75,
       "dependencies": ["ORC-MOD-002", "ORC-MOD-003"],
       "risks": ["No validar outputs IA o documentos sin scanner/retención puede introducir riesgo de confianza."],
       "feature_ids": ["ORC-EVID-001", "ORC-AI-001", "ORC-INV-001", "ORC-MEM-001"],
-      "readiness": "Media-baja: implementación amplia, con configuración de producción y cobertura aún abiertas."
+      "readiness": "Media-alta en Dev: memoria dual, reporting durable y el golden path positivo de un tenant están operativos; MDEV-11 sigue abierto porque falta la matriz A/B cross-tenant con fixtures aislados y la medición con expediente real autorizado."
     },
     {
       "id": "ORC-MOD-006",
@@ -200,11 +205,11 @@
       "name": "Calidad, observabilidad y releases",
       "description": "CI, pruebas, backups, restore, métricas, despliegue reproducible y rollback.",
       "status": "under_review",
-      "progress_percent": 74,
+      "progress_percent": 85,
       "dependencies": ["ORC-MOD-002"],
       "risks": ["Un gate rojo o un rollback no probado puede convertir una regresión en incidente."],
       "feature_ids": ["ORC-QA-001", "ORC-QA-002", "ORC-QA-003"],
-      "readiness": "Media-alta: hay runbooks y despliegue observado, pero debe mantenerse evidencia por release."
+      "readiness": "Alta en Dev: release fec3c3e, suite 1850 passed con 84.12% de cobertura, gate API fail-closed y retención por tenant verificados; se conserva under_review hasta mantener la matriz completa como evidencia reproducible por release."
     }
   ],
   "features": [
@@ -698,14 +703,14 @@
       "related_files": ["apps/api/src/opn_oracle/documents/models.py", "apps/api/src/opn_oracle/documents/routes.py", "apps/api/src/opn_oracle/documents/tasks.py", "apps/api/src/opn_oracle/documents/scanner.py", "docs/operations/DOCUMENTS_EVIDENCE_SEARCH.md"],
       "related_migrations": ["apps/api/migrations/versions/20260711_0009_documents_evidence_search.py"],
       "related_tests": ["apps/api/tests/test_documents.py", "apps/api/tests/test_integration_oracle_domain.py", "src/components/dossiers/dossier-documents-section.test.tsx"],
-      "implementation_evidence": [{"type": "test", "path": "apps/api/tests/test_documents.py", "claim": "Contrato documental y scanner tienen cobertura.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/STATUS.md", "claim": "Estado de documentos y configuración del entorno observado.", "confidence": "medium"}, {"type": "deployment", "path": "docs/implementation/STATUS.md", "claim": "Canario productivo ready/clean con chunks, búsqueda, evidencia y pregunta citable.", "confidence": "high"}],
+      "implementation_evidence": [{"type": "test", "path": "apps/api/tests/test_documents.py", "claim": "Contrato documental y scanner tienen cobertura.", "confidence": "high"}, {"type": "test", "path": "apps/api/tests/test_integration_oracle_domain.py", "claim": "La regresión de fec3c3e cubre el aislamiento transaccional de retención por tenant.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/STATUS.md", "claim": "Estado de documentos y configuración del entorno observado.", "confidence": "medium"}, {"type": "deployment", "path": "docs/implementation/STATUS.md", "claim": "Oracle Dev fec3c3e procesó el job real de retención en verde; esta evidencia no declara producción.", "confidence": "high"}],
       "related_decisions": ["ORC-ADR-0004"],
-      "comments": "Desplegado para UAT productiva con volumen local durable y ClamAV; S3 compatible sigue siendo el destino antes de escalar.",
+      "comments": "Desplegado en Oracle Dev con volumen local durable y ClamAV; fec3c3e corrige el aislamiento transaccional de retención por tenant. S3 compatible sigue siendo el destino antes de escalar.",
       "next_action": "Migrar objetos a S3 compatible y ejecutar restore integral antes de escalar horizontalmente.",
       "created_at": "2026-07-31",
-      "updated_at": "2026-08-01",
+      "updated_at": "2026-08-07",
       "completed_at": "2026-08-01",
-      "history": [{"date": "2026-07-31", "from": "in_progress", "to": "implemented", "summary": "Modelo, rutas, tareas y pruebas observados; activación operativa pendiente."}, {"date": "2026-08-01", "from": "implemented", "to": "implemented", "summary": "Compose y configuración incorporan piloto UAT local durable con ClamAV fijado por digest; falta smoke productivo."}, {"date": "2026-08-01", "from": "implemented", "to": "deployed", "summary": "Canario productivo procesó documento limpio, generó chunks, búsqueda y evidencia citable con pregunta posterior."}]
+      "history": [{"date": "2026-07-31", "from": "in_progress", "to": "implemented", "summary": "Modelo, rutas, tareas y pruebas observados; activación operativa pendiente."}, {"date": "2026-08-01", "from": "implemented", "to": "implemented", "summary": "Compose y configuración incorporan piloto UAT local durable con ClamAV fijado por digest; falta smoke productivo."}, {"date": "2026-08-01", "from": "implemented", "to": "deployed", "summary": "Canario entonces denominado productivo procesó documento limpio, generó chunks, búsqueda y evidencia citable; este registro histórico no acredita el entorno de producción actual."}, {"date": "2026-08-07", "from": "deployed", "to": "deployed", "summary": "Oracle Dev fec3c3e corrige la transacción de retención por tenant; la regresión y el job real quedan verdes."}]
     },
     {
       "id": "ORC-AI-001",
@@ -1208,12 +1213,12 @@
       "user_types": ["desarrollo", "QA", "operaciones"],
       "status": "under_review",
       "priority": "P0",
-      "progress_percent": 70,
+      "progress_percent": 82,
       "complexity": "L",
       "technical_risk": "high",
       "dependencies": ["ORC-PLAT-001", "ORC-UX-003"],
-      "blockers": ["E2E procurement-wizard observado en rojo; revisar alineación de CI y release."],
-      "acceptance_criteria": [{"id": "AC-1", "text": "CI ejecuta lint, format check, tipos, tests, build y cliente OpenAPI.", "status": "met"}, {"id": "AC-2", "text": "La integración con PostgreSQL/Redis se ejecuta cuando el cambio la requiere.", "status": "met"}, {"id": "AC-3", "text": "Un gate rojo impide release y queda registrado con logs.", "status": "partial"}],
+      "blockers": [],
+      "acceptance_criteria": [{"id": "AC-1", "text": "CI ejecuta lint, format check, tipos, tests, build y cliente OpenAPI.", "status": "met"}, {"id": "AC-2", "text": "La integración con PostgreSQL/Redis se ejecuta cuando el cambio la requiere.", "status": "met"}, {"id": "AC-3", "text": "Un gate rojo impide release y queda registrado con logs.", "status": "met"}],
       "functional_requirements": ["Workflow CI y quality scans."],
       "non_functional_requirements": ["No declarar gates sin comando ejecutado."],
       "security_requirements": ["DAST/semgrep, secrets scanning y SBOM."],
@@ -1222,15 +1227,15 @@
       "impact": {"frontend": "Vitest/build/E2E.", "backend": "Ruff/mypy/pytest/integration.", "database": "Migration tests.", "celery": "Worker integration.", "redis": "Redis integration.", "signal": "Contract tests.", "reports": "Report tests.", "permissions": "Auth/IDOR tests."},
       "related_files": [".github/workflows/ci.yml", "apps/api/Makefile", "package.json", "docs/quality/TEST_MATRIX.md", "docs/quality/TEST_STRATEGY.md"],
       "related_migrations": [],
-      "related_tests": [".github/workflows/ci.yml", "apps/api/tests/test_contract.py", "tests/e2e/smoke.spec.ts"],
-      "implementation_evidence": [{"type": "file", "path": ".github/workflows/ci.yml", "claim": "Workflow con gates backend/frontend/E2E.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/STATUS.md", "claim": "Registra resultados mixtos del entorno observado.", "confidence": "medium"}],
+      "related_tests": [".github/workflows/ci.yml", "apps/api/tests/test_contract.py", "apps/api/tests/test_native_release_api_gate.py", "tests/operations/test-native-build-release-api-gate.sh", "tests/e2e/smoke.spec.ts", "tests/e2e/sv2-demo-walkthrough.spec.ts", "scripts/sv2_golden_path_check.py"],
+      "implementation_evidence": [{"type": "file", "path": ".github/workflows/ci.yml", "claim": "Workflow con gates backend/frontend/E2E.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/STATUS.md", "claim": "Registra 1850 passed, 84.12% de cobertura y el release Oracle Dev fec3c3e.", "confidence": "high"}, {"type": "test", "path": "apps/api/tests/test_native_release_api_gate.py", "claim": "La regresión ejecuta el helper real y confirma que un gate API rojo aborta antes de materializar el release.", "confidence": "high"}, {"type": "test", "path": "tests/e2e/sv2-demo-walkthrough.spec.ts", "claim": "El recorrido de demostración usa API real para portada, documentos, Preguntar e informes; ejecución registrada 1/1 en Oracle Dev.", "confidence": "high"}],
       "related_decisions": ["ORC-ADR-0004"],
-      "comments": "Estado bajo revisión hasta resolver el E2E rojo y mantener integración real en cambios de dominio.",
-      "next_action": "Ejecutar gates exactos y documentar el primer fallo real, no solo el resumen del workflow.",
+      "comments": "El blocker E2E de procurement y el blocker del gate API fail-closed están cerrados. El release fec3c3e registra 1850 passed y 84.12% de cobertura; se mantiene under_review para exigir una evidencia reproducible de la matriz completa por release.",
+      "next_action": "Conservar comando, logs y resultados de la matriz completa en el próximo SHA antes de elevar el estado de la funcionalidad.",
       "created_at": "2026-07-31",
-      "updated_at": "2026-07-31",
+      "updated_at": "2026-08-07",
       "completed_at": null,
-      "history": [{"date": "2026-07-31", "from": "implemented", "to": "under_review", "summary": "CI existe; resultado observado no es completamente verde."}]
+      "history": [{"date": "2026-07-31", "from": "implemented", "to": "under_review", "summary": "CI existe; resultado observado no es completamente verde."}, {"date": "2026-08-07", "from": "under_review", "to": "under_review", "summary": "Se retira el blocker E2E obsoleto tras el recorrido real 1/1 en Oracle Dev."}, {"date": "2026-08-07", "from": "under_review", "to": "under_review", "summary": "fec3c3e integra el gate API fail-closed probado por comportamiento y registra 1850 passed con 84.12% de cobertura; se conserva revisión por release."}]
     },
     {
       "id": "ORC-QA-002",
@@ -1307,22 +1312,22 @@
       "module_id": "ORC-MOD-005",
       "title": "Memoria dual Oracle↔Signal (Dev)",
       "description": "Integrar la memoria estructurada de Oracle con el motor factual opn_memory de Signal en los entornos Dev (oracle-dev ↔ signal-dev): modos disabled/shadow/augment, ingesta bilateral, retrieval tenant-safe, Control Center en Signal y uso en Preguntar/Informes/Vigilancias con citas reales.",
-      "problem": "Hoy Ask/Brief ya usan Signal para gobierno de IA, pero el retrieval de memoria factual es stub en ambos lados y el corpus piloto de Signal no está acotado por tenant/expediente.",
+      "problem": "El retrieval, la ingesta bilateral y el uso en Ask/Informes ya existen en Dev, y el golden path positivo de un tenant pasa 6/6; falta la matriz A/B cross-tenant, la evaluación sobre expediente real y el gate final MDEV-11.",
       "business_objective": "Permitir que un expediente Oracle Dev recupere hechos consolidados de Signal y los use con degradación controlada, sin tocar producción.",
       "user_value": "Preguntas e informes con citas de memoria factual real; control administrativo del consumer Oracle Dev; modos shadow/augment operativos.",
       "user_types": ["analista", "admin_tenant", "operaciones", "producto"],
-      "status": "in_progress",
+      "status": "under_review",
       "priority": "P0",
-      "progress_percent": 20,
+      "progress_percent": 80,
       "complexity": "XL",
       "technical_risk": "high",
       "dependencies": ["ORC-AI-001", "ORC-EVID-001", "ORC-SIG-001", "ORC-DOS-001", "ORC-REP-001", "ORC-OPS-001", "ORC-QA-003"],
-      "blockers": [],
+      "blockers": ["MDEV-11 requiere una matriz A/B cross-tenant, bloqueada hasta crear dos fixtures aislados con credenciales y grants propios.", "La medición de calidad sobre un expediente real requiere autorización explícita."],
       "acceptance_criteria": [
-        {"id": "AC-1", "text": "Signal Dev expone retrieve real con items de scope tenant/expediente y filtra antes del retrieval.", "status": "pending"},
-        {"id": "AC-2", "text": "Oracle HttpMemoryContextAdapter opera en HTTPS contra Signal Dev con modos disabled/shadow/augment.", "status": "pending"},
-        {"id": "AC-3", "text": "UAT real en oracle-dev: documento+vigilancia+pregunta+informe con citas y sin fugas cross-tenant.", "status": "pending"},
-        {"id": "AC-4", "text": "Consumer dedicado opn-oracle-dev (no reutilizar prod) y flags de host/consumer sin secretos en git.", "status": "pending"},
+        {"id": "AC-1", "text": "Signal Dev expone retrieve real con items de scope tenant/expediente y filtra antes del retrieval.", "status": "met"},
+        {"id": "AC-2", "text": "Oracle HttpMemoryContextAdapter opera en HTTPS contra Signal Dev con modos disabled/shadow/augment.", "status": "met"},
+        {"id": "AC-3", "text": "UAT real en oracle-dev: documento+vigilancia+pregunta+informe con citas y sin fugas cross-tenant.", "status": "partial"},
+        {"id": "AC-4", "text": "Consumer dedicado opn-oracle-dev (no reutilizar prod) y flags de host/consumer sin secretos en git.", "status": "met"},
         {"id": "AC-5", "text": "Producción permanece fuera de alcance; ledger MDEV marca DEV_DUAL_MEMORY_READY solo tras MDEV-11.", "status": "pending"}
       ],
       "functional_requirements": [
@@ -1361,29 +1366,46 @@
         "docs/implementation/MDEV_EXECUTION_LEDGER.md",
         "docs/implementation/MDEV_00_BASELINE_BILATERAL.md",
         "apps/api/src/opn_oracle/integrations/memory_context.py",
+        "apps/api/src/opn_oracle/integrations/memory_ask_dual.py",
+        "apps/api/src/opn_oracle/oracle/custom_report_lifecycle.py",
+        "apps/api/src/opn_oracle/evals/release_preflight.py",
         "docs/contracts/memory_v1/CONTRACT_MANIFEST.json",
         "apps/api/src/opn_oracle/integrations/memory_contract_v1.py",
         "apps/api/tests/test_memory_v1_contract.py"
       ],
-      "related_migrations": [],
+      "related_migrations": [
+        "apps/api/migrations/versions/20260802_0029_dossier_memory_profiles.py",
+        "apps/api/migrations/versions/20260802_0030_memory_signal_evidence.py",
+        "apps/api/migrations/versions/20260802_0031_dossier_surveillance_actions.py",
+        "apps/api/migrations/versions/20260802_0032_report_ai_usage_bindings.py"
+      ],
       "related_tests": [
         "apps/api/tests/test_memory_context.py",
         "apps/api/tests/test_memory_v1_contract.py",
-        "apps/api/tests/test_memory_v1_mutations.py"
+        "apps/api/tests/test_memory_v1_mutations.py",
+        "apps/api/tests/test_memory_mdev06_celery_ask.py",
+        "apps/api/tests/test_memory_mdev07_surveillance_pg.py",
+        "apps/api/tests/test_memory_mdev08_report_lifecycle.py",
+        "apps/api/tests/test_memory_mdev09_resilience.py",
+        "scripts/sv2_golden_path_check.py",
+        "external:opn_signal/tests/test_memory_v1_mdev02_core.py"
       ],
       "implementation_evidence": [
         {"type": "audit", "path": "docs/implementation/MDEV_00_BASELINE_BILATERAL.md", "claim": "Baseline Dev dual medido 2026-08-01; stubs y corpus piloto confirmados.", "confidence": "high"},
-        {"type": "file", "path": "docs/implementation/MDEV_EXECUTION_LEDGER.md", "claim": "Ledger MDEV-01 REWORK-2 actualizado; pending Codex review.", "confidence": "high"},
+        {"type": "file", "path": "docs/implementation/MDEV_EXECUTION_LEDGER.md", "claim": "Ledger histórico conserva fases y deudas MDEV; el snapshot consolidado posterior se registra en STATUS.", "confidence": "high"},
         {"type": "contract", "path": "docs/contracts/memory_v1/CONTRACT_MANIFEST.json", "claim": "REWORK-2 bundle content_set e4431048…; legacy key ban; durable analysis; host fail-closed.", "confidence": "high"},
-        {"type": "note", "path": "docs/contracts/memory_v1/CONTRACT_MANIFEST.json", "claim": "Signal REWORK-2: test_memory_v1_contract/mutations + tenant credentials migration expand (not applied on hosts).", "confidence": "high"}
+        {"type": "test", "path": "apps/api/tests/test_memory_mdev06_celery_ask.py", "claim": "Ask dual recorre Celery y el proveedor Signal con materialización citable.", "confidence": "high"},
+        {"type": "test", "path": "apps/api/tests/test_memory_mdev08_report_lifecycle.py", "claim": "El informe custom conserva snapshot, writer/reviewer y ciclo durable.", "confidence": "high"},
+        {"type": "test", "path": "apps/api/tests/test_memory_mdev09_resilience.py", "claim": "Preflight de runtimes y escalera de timeouts cubiertos.", "confidence": "high"},
+        {"type": "deployment", "path": "docs/implementation/STATUS.md", "claim": "Oracle Dev fec3c3e y Signal Dev abc8caf usan el consumer efectivo 64|opn-oracle-dev; memory_extraction responde 200 con coste 0 y el golden path positivo de un tenant pasa 6/6.", "confidence": "high"}
       ],
       "related_decisions": ["ORC-ADR-0010"],
-      "comments": "Aprobado como idea de programa memoria_dev_v2 (MDEV-00..11). No implementar fuera de fases autorizadas. Status máximo en MDEV-00: approved.",
-      "next_action": "Awaiting Codex review of MDEV-01 REWORK-2 Gate Packet. NEXT_PHASE_AUTHORIZED=false.",
+      "comments": "Oracle Dev fec3c3e usa Signal Dev abc8caf mediante el consumer efectivo 64|opn-oracle-dev y un catálogo de 30 tareas local-only sobre Titan. El golden path positivo de un tenant terminó 6/6 a las 02:52 Europe/Madrid, con 5 citas en Preguntar, informe 200, jobs=0 y coste 0. La feature no se marca validated/deployed porque falta la matriz A/B cross-tenant de MDEV-11 y la medición sobre expediente real.",
+      "next_action": "Crear dos fixtures aislados con owners, expedientes, documentos, credenciales tenant-bound y grants propios; ejecutar la matriz A/B bidireccional sin fugas y medir después un expediente real autorizado. Mantener producción fuera de alcance.",
       "created_at": "2026-08-01",
-      "updated_at": "2026-08-01",
+      "updated_at": "2026-08-07",
       "completed_at": null,
-      "history": [{"date": "2026-08-01", "from": "idea", "to": "approved", "summary": "Idea registrada en MDEV-00 tras auditoría dual Dev; sin equivalente previo en roadmap."}, {"date": "2026-08-01", "from": "approved", "to": "in_progress", "summary": "MDEV-01 congela contratos memory.v1 bilaterales."}, {"date": "2026-08-01", "from": "in_progress", "to": "in_progress", "summary": "MDEV-01 REWORK-2: seguridad credencial, host fail-closed, bundle e4431048."}]
+      "history": [{"date": "2026-08-01", "from": "idea", "to": "approved", "summary": "Idea registrada en MDEV-00 tras auditoría dual Dev; sin equivalente previo en roadmap."}, {"date": "2026-08-01", "from": "approved", "to": "in_progress", "summary": "MDEV-01 congela contratos memory.v1 bilaterales."}, {"date": "2026-08-01", "from": "in_progress", "to": "in_progress", "summary": "MDEV-01 REWORK-2: seguridad credencial, host fail-closed, bundle e4431048."}, {"date": "2026-08-07", "from": "in_progress", "to": "under_review", "summary": "El consolidado integra retrieve tenant-safe, adapter HTTP, outbox, Ask, vigilancias, informes y preflight MDEV-06…09."}, {"date": "2026-08-07", "from": "under_review", "to": "under_review", "summary": "El golden path positivo de un tenant pasa 6/6 con coste 0; MDEV-11 sigue abierto porque la matriz A/B está bloqueada por falta de fixtures aislados."}]
     }
   ],
   "dependencies": [

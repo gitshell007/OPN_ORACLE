@@ -1173,7 +1173,7 @@ def _invoke_rt09_writer_via_signal(
 
     from flask import current_app
 
-    from opn_oracle.ai.provider import AIUnavailable, SignalGovernedLLMProvider
+    from opn_oracle.ai.provider import AIRejected, AIUnavailable, SignalGovernedLLMProvider
 
     base_url = str(current_app.config.get("SIGNAL_AI_BASE_URL") or "").strip()
     api_key = str(current_app.config.get("SIGNAL_AI_API_KEY") or "").strip()
@@ -1233,6 +1233,14 @@ def _invoke_rt09_writer_via_signal(
     try:
         # Public governed boundary — never call private _run from product code.
         payload = provider.run_governed(body)
+    except AIRejected as exc:
+        raise CustomReportError(
+            f"Signal rechazó la salida de RT-09: {exc}",
+            errors={
+                "signal_rejection": [exc.error_code],
+                "signal_request_id": [exc.request_id] if exc.request_id else [],
+            },
+        ) from exc
     except AIUnavailable as exc:
         raise CustomReportError(
             f"Signal no disponible para RT-09: {exc}",
@@ -1245,7 +1253,7 @@ def _invoke_rt09_writer_via_signal(
             "nunca se consume result crudo.",
             errors={"validated_output": ["missing"]},
         )
-    # RT-09 v1.0.1: arrays opcionales en el schema → normalizar ausentes a []
+    # RT-09 v1.0.2: arrays opcionales en el schema → normalizar ausentes a []
     # (mismo contrato que normalize_brief_plan_output para RT-08).
     for _key in ("citations", "facts", "claims", "conflicts", "inferences", "recommendations"):
         if not isinstance(validated.get(_key), list):
@@ -1276,7 +1284,7 @@ def _invoke_rt10_review_via_signal(
 
     from flask import current_app
 
-    from opn_oracle.ai.provider import AIUnavailable, SignalGovernedLLMProvider
+    from opn_oracle.ai.provider import AIRejected, AIUnavailable, SignalGovernedLLMProvider
 
     base_url = str(current_app.config.get("SIGNAL_AI_BASE_URL") or "").strip()
     api_key = str(current_app.config.get("SIGNAL_AI_API_KEY") or "").strip()
@@ -1326,6 +1334,14 @@ def _invoke_rt10_review_via_signal(
     }
     try:
         payload = provider.run_governed(body)
+    except AIRejected as exc:
+        raise CustomReportError(
+            f"Signal rechazó la salida de RT-10: {exc}",
+            errors={
+                "signal_rejection": [exc.error_code],
+                "signal_request_id": [exc.request_id] if exc.request_id else [],
+            },
+        ) from exc
     except AIUnavailable as exc:
         raise CustomReportError(
             f"Signal no disponible para RT-10: {exc}",
@@ -1501,17 +1517,22 @@ def process_custom_brief_write(
                 snap=snap, options=options, current_hash=current_hash
             )
         except CustomReportError as exc:
+            failure_code = (
+                "signal_rt09_invalid_output"
+                if exc.errors.get("signal_rejection")
+                else "signal_rt09_unavailable"
+            )
             options["lifecycle_state"] = "failed"
             report.options = options
             report.status = "failed"
-            report.error_code = "signal_rt09_unavailable"
+            report.error_code = failure_code
             report.error_message = str(exc)[:500]
             report.version = int(report.version) + 1
             session.flush()
             return {
                 "report_id": str(report.id),
                 "failed": True,
-                "reason": "signal_rt09_unavailable",
+                "reason": failure_code,
                 "error": str(exc)[:300],
             }
         writer_output = dict(signal_bundle["validated_output"])
@@ -1706,17 +1727,22 @@ def process_custom_brief_review(
                 snap=snap, writer_output=writer_output, current_hash=current_hash
             )
         except CustomReportError as exc:
+            failure_code = (
+                "signal_rt10_invalid_output"
+                if exc.errors.get("signal_rejection")
+                else "signal_rt10_unavailable"
+            )
             options["lifecycle_state"] = "failed"
             report.options = options
             report.status = "failed"
-            report.error_code = "signal_rt10_unavailable"
+            report.error_code = failure_code
             report.error_message = str(exc)[:500]
             report.version = int(report.version) + 1
             session.flush()
             return {
                 "report_id": str(report.id),
                 "failed": True,
-                "reason": "signal_rt10_unavailable",
+                "reason": failure_code,
                 "error": str(exc)[:300],
             }
         review_output = dict(signal_bundle["validated_output"])

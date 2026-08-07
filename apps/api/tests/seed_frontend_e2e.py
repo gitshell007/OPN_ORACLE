@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 
 from opn_oracle import create_app
+from opn_oracle.ai.policy_defaults import default_ai_policy
 from opn_oracle.auth.passwords import PasswordHasher, PasswordPolicy
 from opn_oracle.extensions import db
 from opn_oracle.platform.models import MembershipRole, Tenant, TenantMembership, User, Workspace
@@ -83,6 +84,12 @@ def seed() -> None:
         db.session.commit()
         with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=owner_id)):
             roles = seed_system_roles(db.session, tenant_id)
+            ai_policy = default_ai_policy(tenant_id, app.config)
+            # The disposable E2E corpus includes internal client declarations.
+            # The provider is still the backend's offline/cost-zero mock configured
+            # by ``scripts/run-auth-e2e-api.sh``.
+            ai_policy.max_classification = "internal"
+            db.session.add(ai_policy)
             db.session.add(
                 MembershipRole(
                     tenant_id=tenant_id, membership_id=membership_id, role_id=roles["owner"].id
@@ -110,7 +117,7 @@ def seed() -> None:
         # G-20-B E2E: market dossier with discovery profile + candidate artifact fixture.
         # Real API/DB seed (no browser network mock). Playwright opens this dossier.
         _seed_g20b_market_actor_fixture(tenant_id=tenant_id, owner_id=owner_id)
-        # G-14: opportunity artifacts served by the real API from disposable PostgreSQL.
+        # G-14: only dossier/profile/evidence; Playwright launches the real AI job.
         _seed_g14_opportunity_fixtures(tenant_id=tenant_id, owner_id=owner_id)
 
 
@@ -266,30 +273,59 @@ def _seed_g20b_market_actor_fixture(
 
 
 def _seed_g14_opportunity_fixtures(*, tenant_id, owner_id) -> None:
-    """Seed fit/no-fit opportunity dossiers for Playwright without ``page.route``."""
+    """Seed only source data; Playwright must create the opportunity artifact."""
 
     import hashlib
-    import json
     import uuid
-    from datetime import UTC, datetime
-    from pathlib import Path
 
-    from opn_oracle.ai.models import AIArtifact
-    from opn_oracle.oracle.jobs import AIAuditLog
-    from opn_oracle.oracle.models import StrategicDossier
+    from opn_oracle.oracle.links import EvidenceDossier
+    from opn_oracle.oracle.models import Evidence, StrategicDossier
     from opn_oracle.platform.models import Workspace
     from opn_oracle.tenants.context import TenantContext, tenant_context
 
-    fixtures_dir = Path(__file__).resolve().parents[3] / "tests" / "e2e" / "fixtures"
-    fixture_specs = (
-        (
-            "G-14 Encaje y borrador E2E real",
-            fixtures_dir / "sv2-opportunity-fit-draft.json",
+    client_profile = {
+        "version": "custom.v1",
+        "own_offer": (
+            "Asterion Sistemas ofrece software, plataformas e inteligencia artificial para "
+            "administraciones públicas: integración, analítica, agentes y modernización."
         ),
-        (
-            "G-14 Estado vacío E2E real",
-            fixtures_dir / "sv2-opportunity-no-fit.json",
-        ),
+        "decision_to_make": "Decidir si preparar oferta para la licitación G-14.",
+        "cpv": ["72000000", "72200000", "72212000", "72222300", "48000000"],
+        "barriers": [
+            "Homologación y solvencia técnica exigida en administraciones públicas",
+            "Plazos de licitación y documentación técnica",
+        ],
+    }
+    official_extract = """
+EXTRACTO OFICIAL PCAP · CONTR 2026 G14-E2E
+Objeto: diseño, desarrollo e implantación de una red de agentes inteligentes.
+CPV oficial: 72268000. Valor estimado del contrato: 5.450.796,93 EUR.
+Plazo de presentación de ofertas: 2026-08-20.
+
+LOTES
+- Lote 1: Gobernanza de la IA.
+- Lote 2: Red de agentes inteligentes.
+
+CRITERIOS DE ADJUDICACIÓN
+- Oferta económica evaluable mediante fórmulas: 30 %.
+- Oferta técnica evaluable mediante juicio de valor: 70 %.
+- Umbral mínimo de la oferta técnica: 60 puntos.
+
+F.2. SOLVENCIA ECONÓMICA Y FINANCIERA
+Volumen anual de negocio del año de mayor volumen de los tres últimos concluidos,
+al menos una vez y media el valor estimado del contrato o del lote.
+
+F.3. SOLVENCIA TÉCNICA
+Relación de servicios ejecutados durante los últimos tres años, avalada por
+certificados de buena ejecución.
+
+DOCUMENTACIÓN ADMINISTRATIVA
+DEUC y acreditación de la solvencia F.2 y F.3 antes de la adjudicación.
+""".strip()
+
+    dossier_specs = (
+        ("G-14 Encaje y borrador E2E real", client_profile, official_extract),
+        ("G-14 Estado vacío E2E real", {}, None),
     )
     with tenant_context(
         TenantContext(
@@ -302,75 +338,51 @@ def _seed_g14_opportunity_fixtures(*, tenant_id, owner_id) -> None:
         workspace = (
             db.session.query(Workspace).filter_by(tenant_id=tenant_id, slug="principal").one()
         )
-        for title, fixture_path in fixture_specs:
-            fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
-            output = dict(fixture["artifact"]["output"])
+        for title, profile_config, evidence_extract in dossier_specs:
             dossier = StrategicDossier(
                 id=uuid.uuid4(),
                 tenant_id=tenant_id,
                 workspace_id=workspace.id,
                 title=title,
-                description="Fixture G-14 desechable: API y PostgreSQL reales",
+                description="Fixture G-14 desechable: solo entradas para el análisis real",
                 dossier_type="tender",
                 status="active",
                 owner_user_id=owner_id,
+                profile_config=profile_config,
+                synthetic_data=True,
             )
             db.session.add(dossier)
             db.session.flush()
-
-            digest = hashlib.sha256(
-                json.dumps(output, ensure_ascii=False, sort_keys=True).encode("utf-8")
-            ).digest()
-            now = datetime.now(UTC)
-            audit = AIAuditLog(
+            if evidence_extract is None:
+                continue
+            evidence = Evidence(
                 id=uuid.uuid4(),
                 tenant_id=tenant_id,
-                dossier_id=dossier.id,
-                requested_by_user_id=owner_id,
-                use_case="opportunity",
-                agent="opportunity",
-                action="generate",
-                provider="mock",
-                model="mock-v1",
-                prompt_name="opportunity",
-                prompt_version="v1",
-                prompt_hash=digest,
-                context_hash=digest,
-                schema_name="OpportunityOutput",
-                schema_version="v1",
-                input_hash=digest,
-                output_hash=digest,
-                source_ids=[],
-                status="succeeded",
-                data_classification="internal",
-                redaction_applied=False,
-                redaction_summary={"e2e_fixture": True},
-                input_tokens=0,
-                output_tokens=0,
-                actual_cost_micros=0,
-                currency="EUR",
-                attempt_count=1,
-                started_at=now,
-                completed_at=now,
-                human_review_state="not_required",
+                signal_id=None,
+                source_kind="procurement",
+                source_url="https://example.test/placsp/CONTR-2026-G14-E2E",
+                extract=evidence_extract,
+                locator={
+                    "kind": "pliego_extract",
+                    "ref": "CONTR 2026 G14-E2E",
+                    "document_role": "pliego",
+                    "context_family": "tenders",
+                },
+                checksum=hashlib.sha256(evidence_extract.encode("utf-8")).digest(),
+                classification="internal",
+                provenance={
+                    "source_kind": "procurement",
+                    "provider": "e2e_fixture",
+                    "synthetic": True,
+                },
             )
-            db.session.add(audit)
+            db.session.add(evidence)
             db.session.flush()
             db.session.add(
-                AIArtifact(
-                    id=uuid.uuid4(),
+                EvidenceDossier(
                     tenant_id=tenant_id,
-                    audit_log_id=audit.id,
+                    evidence_id=evidence.id,
                     dossier_id=dossier.id,
-                    target_type="strategic_dossier",
-                    target_id=dossier.id,
-                    agent="opportunity",
-                    schema_name="OpportunityOutput",
-                    schema_version="v1",
-                    status="candidate",
-                    version=1,
-                    output=output,
-                    output_hash=digest,
                 )
             )
         db.session.commit()

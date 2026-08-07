@@ -2174,7 +2174,7 @@ def test_rt09_rt10_unavailable_and_missing_validated_output(
 ) -> None:
     """Bug que cazaría: AIUnavailable o payload sin validated_output se traga como OK."""
 
-    from opn_oracle.ai.provider import AIUnavailable
+    from opn_oracle.ai.provider import AIRejected, AIUnavailable
     from opn_oracle.oracle.custom_report_lifecycle import (
         _invoke_rt09_writer_via_signal,
         _invoke_rt10_review_via_signal,
@@ -2201,6 +2201,18 @@ def test_rt09_rt10_unavailable_and_missing_validated_output(
         def run_governed(self, body: dict[str, Any]) -> dict[str, Any]:
             return {"result": {"raw": True}, "usage": {"input_tokens": 1}}
 
+    class RejectedProvider:
+        def __init__(self, *a: Any, **k: Any) -> None:
+            pass
+
+        def run_governed(self, body: dict[str, Any]) -> dict[str, Any]:
+            raise AIRejected(
+                "safe rejection",
+                status_code=422,
+                error_code="rt_output_not_json",
+                request_id="run-422",
+            )
+
     class OkProvider:
         def __init__(self, *a: Any, **k: Any) -> None:
             pass
@@ -2223,6 +2235,14 @@ def test_rt09_rt10_unavailable_and_missing_validated_output(
             _invoke_rt09_writer_via_signal(snap=snap, options={}, current_hash="h")
         with pytest.raises(CustomReportError, match="Signal no disponible para RT-10"):
             _invoke_rt10_review_via_signal(snap=snap, writer_output={}, current_hash="h")
+
+        monkeypatch.setattr("opn_oracle.ai.provider.SignalGovernedLLMProvider", RejectedProvider)
+        with pytest.raises(CustomReportError, match="Signal rechazó la salida") as rejected:
+            _invoke_rt09_writer_via_signal(snap=snap, options={}, current_hash="h")
+        assert rejected.value.errors == {
+            "signal_rejection": ["rt_output_not_json"],
+            "signal_request_id": ["run-422"],
+        }
 
         monkeypatch.setattr("opn_oracle.ai.provider.SignalGovernedLLMProvider", BadShapeProvider)
         with pytest.raises(CustomReportError, match="validated_output"):

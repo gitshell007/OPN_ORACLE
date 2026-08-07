@@ -4,10 +4,11 @@
  *  2) Preparar borrador de oferta
  *  3) Empty honest state (no fit_assessment → no encaje / no draft button)
  *
- * Uses the auth E2E harness, disposable PostgreSQL and the real opportunity/latest
- * endpoint. The seed inserts anonymized artifacts; the browser never intercepts API calls.
+ * Uses the auth E2E harness, disposable PostgreSQL and the real opportunity job.
+ * The seed inserts only dossier/profile/evidence inputs; Flask + Celery create the artifact
+ * through the offline deterministic mock provider. The browser never intercepts API calls.
  */
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -19,7 +20,7 @@ const EVIDENCE_DIR =
   process.env.SV2_UI_E2E_EVIDENCE_DIR ||
   "/Users/gitshellmini/Desktop/Codex-Signal/runner/staging";
 
-async function loginOwner(page: Page, _testInfo: TestInfo) {
+async function loginOwner(page: Page) {
   await page.setExtraHTTPHeaders({ "X-Forwarded-For": "198.51.100.142" });
   await page.goto("/login?next=%2Fapp%2Fdossiers");
   await page.getByLabel("Correo electrónico").fill("owner@oracle-e2e.test");
@@ -63,7 +64,123 @@ async function saveEvidence(page: Page, name: string, target?: ReturnType<Page["
   }
 }
 
+type OpportunityRunPayload = {
+  job: { id: string; job_type: string; status: string };
+  artifact?: {
+    id: string;
+    agent: string;
+    audit_log_id?: string | null;
+    output?: { fit_assessment?: unknown; draft_offer?: unknown };
+  } | null;
+};
+
+async function runRealOpportunityAnalysis(
+  page: Page,
+  base: string,
+  options: { expectUnseededArtifact?: boolean } = {},
+): Promise<NonNullable<OpportunityRunPayload["artifact"]>> {
+  const initialLatest = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      response.url().includes("/api/v1/ai/dossiers/") &&
+      response.url().endsWith("/opportunity/latest"),
+  );
+  await page.goto(`${base}/opportunity-analysis`);
+  const initialResponse = await initialLatest;
+  expect(initialResponse.status()).toBe(200);
+  if (options.expectUnseededArtifact) {
+    const initialPayload = (await initialResponse.json()) as OpportunityRunPayload;
+    expect(initialPayload.artifact).toBeFalsy();
+    await expect(page.getByTestId("dossier-opportunity-empty")).toBeVisible({
+      timeout: 20_000,
+    });
+  }
+  await expect(page.getByTestId("dossier-opportunity-run")).toBeVisible({
+    timeout: 20_000,
+  });
+
+  const runResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().includes("/api/v1/ai/dossiers/") &&
+      response.url().endsWith("/opportunity/runs"),
+  );
+  await page.getByTestId("dossier-opportunity-run").click();
+  const response = await runResponse;
+  expect(response.status()).toBe(202);
+  const enqueued = (await response.json()) as OpportunityRunPayload;
+  expect(enqueued.job.job_type).toBe("oracle.ai.opportunity");
+  expect(enqueued.job.id).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const jobResponse = await page.request.get(`/api/v1/jobs/${enqueued.job.id}`);
+        if (!jobResponse.ok()) return `http_${jobResponse.status()}`;
+        const job = (await jobResponse.json()) as { status?: string };
+        return job.status ?? "missing";
+      },
+      { timeout: 30_000, intervals: [100, 250, 500, 1_000] },
+    )
+    .toBe("succeeded");
+
+  const generatedRef: { current: OpportunityRunPayload["artifact"] } = { current: null };
+  await expect
+    .poll(
+      async () => {
+        const latestResponse = await page.request.get(
+          `${base.replace("/app/dossiers/", "/api/v1/ai/dossiers/")}/opportunity/latest`,
+        );
+        if (!latestResponse.ok()) return `http_${latestResponse.status()}`;
+        const latest = (await latestResponse.json()) as OpportunityRunPayload;
+        generatedRef.current = latest.artifact;
+        return latest.artifact?.id ?? "missing";
+      },
+      { timeout: 30_000, intervals: [100, 250, 500, 1_000] },
+    )
+    .not.toBe("missing");
+
+  const generated = generatedRef.current;
+  if (!generated) throw new Error("El job terminó sin artefacto de oportunidad.");
+  expect(generated.agent).toBe("opportunity");
+  expect(generated.output?.fit_assessment).toBeTruthy();
+  expect(generated.output?.draft_offer).toBeTruthy();
+  expect(generated.audit_log_id).toBeTruthy();
+
+  const auditResponse = await page.request.get(
+    `/api/v1/ai/audits/${generated.audit_log_id}`,
+  );
+  expect(auditResponse.status()).toBe(200);
+  const audit = (await auditResponse.json()) as {
+    status?: string;
+    provider?: string;
+    model?: string;
+    cost_micros?: number;
+    attempts?: Array<{ status?: string; cost_micros?: number }>;
+  };
+  expect(audit.status).toBe("succeeded");
+  expect(audit.provider).toBe("mock");
+  expect(audit.model).toBe("mock-oracle-v1");
+  expect(audit.cost_micros).toBe(0);
+  expect(audit.attempts?.length).toBeGreaterThan(0);
+  expect(audit.attempts?.every((attempt) => attempt.cost_micros === 0)).toBe(true);
+
+  await page.reload();
+  await expect(page.getByTestId("dossier-opportunity-proposal")).toBeVisible({
+    timeout: 20_000,
+  });
+  return generated;
+}
+
 test.describe("SV2-UI-E2E encaje + borrador (visual Playwright)", () => {
+  test.beforeEach(async ({ page }) => {
+    // Runtime guard: G-14 must never replace Flask responses in the browser.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (page as any).route = async () => {
+      throw new Error("G-14 forbids page.route network mocks");
+    };
+  });
+
   test("bloque encaje: veredicto, puerta humana, ≥4 dimensiones, not_evaluable, condiciones", async ({
     page,
   }, testInfo) => {
@@ -73,23 +190,10 @@ test.describe("SV2-UI-E2E encaje + borrador (visual Playwright)", () => {
     );
     test.setTimeout(120_000);
 
-    await loginOwner(page, testInfo);
+    await loginOwner(page);
     const base = await openDossier(page, FIT_DOSSIER);
 
-    const latestResponse = page.waitForResponse(
-      (response) =>
-        response.request().method() === "GET" &&
-        response.url().includes("/api/v1/ai/dossiers/") &&
-        response.url().endsWith("/opportunity/latest"),
-    );
-    await page.goto(`${base}/opportunity-analysis`);
-    const response = await latestResponse;
-    expect(response.status()).toBe(200);
-    const payload = (await response.json()) as {
-      artifact?: { output?: { fit_assessment?: unknown; draft_offer?: unknown } };
-    };
-    expect(payload.artifact?.output?.fit_assessment).toBeTruthy();
-    expect(payload.artifact?.output?.draft_offer).toBeTruthy();
+    await runRealOpportunityAnalysis(page, base, { expectUnseededArtifact: true });
     await expect(page.getByTestId("dossier-opportunity-analysis-section")).toBeVisible({
       timeout: 20_000,
     });
@@ -156,26 +260,10 @@ test.describe("SV2-UI-E2E encaje + borrador (visual Playwright)", () => {
     );
     test.setTimeout(120_000);
 
-    await loginOwner(page, testInfo);
+    await loginOwner(page);
     const base = await openDossier(page, FIT_DOSSIER);
 
-    const latestResponse = page.waitForResponse(
-      (response) =>
-        response.request().method() === "GET" &&
-        response.url().includes("/api/v1/ai/dossiers/") &&
-        response.url().endsWith("/opportunity/latest"),
-    );
-    await page.goto(`${base}/opportunity-analysis`);
-    const response = await latestResponse;
-    expect(response.status()).toBe(200);
-    const payload = (await response.json()) as {
-      artifact?: { output?: { fit_assessment?: unknown; draft_offer?: unknown } };
-    };
-    expect(payload.artifact?.output?.fit_assessment).toBeTruthy();
-    expect(payload.artifact?.output?.draft_offer).toBeTruthy();
-    await expect(page.getByTestId("dossier-opportunity-proposal")).toBeVisible({
-      timeout: 20_000,
-    });
+    await runRealOpportunityAnalysis(page, base);
 
     const prepare = page.getByTestId("dossier-opportunity-prepare-draft-offer");
     await expect(prepare).toBeVisible();
@@ -245,7 +333,7 @@ test.describe("SV2-UI-E2E encaje + borrador (visual Playwright)", () => {
     );
     test.setTimeout(120_000);
 
-    await loginOwner(page, testInfo);
+    await loginOwner(page);
     const base = await openDossier(page, EMPTY_DOSSIER);
 
     const latestResponse = page.waitForResponse(
@@ -260,14 +348,12 @@ test.describe("SV2-UI-E2E encaje + borrador (visual Playwright)", () => {
     const payload = (await response.json()) as {
       artifact?: { output?: { fit_assessment?: unknown; draft_offer?: unknown } };
     };
-    expect(payload.artifact).toBeTruthy();
-    expect(payload.artifact?.output?.fit_assessment).toBeFalsy();
-    expect(payload.artifact?.output?.draft_offer).toBeFalsy();
-    await expect(page.getByTestId("dossier-opportunity-proposal")).toBeVisible({
+    expect(payload.artifact).toBeFalsy();
+    await expect(page.getByTestId("dossier-opportunity-empty")).toBeVisible({
       timeout: 20_000,
     });
 
-    // Propuesta sí se ve (hechos/recomendación), pero sin bloque de encaje fantasma
+    // Sin ejecutar el agente no se inventa una propuesta ni un bloque de encaje.
     await expect(page.getByTestId("dossier-opportunity-fit-assessment")).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: /Encaje perfil ↔ pliego/ }),

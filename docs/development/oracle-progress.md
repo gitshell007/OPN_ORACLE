@@ -5,6 +5,36 @@ Este historial es complementario al `history` de cada funcionalidad en
 con el comando real o con el archivo que las contiene.
 
 
+## 2026-08-07 — Snapshot consolidado fec3c3e · ORC-MEM-001 / ORC-QA-001
+
+- Alcance: reconciliación documental del `HEAD` consolidado y de las entregas verificadas en los
+  dos entornos Dev; no se extrapola ningún resultado a producción.
+- Oracle Dev: release `20260807T001643Z-native-fec3c3e`; API, web, worker y beat activos;
+  readiness con PostgreSQL/Redis `ok`. Signal Dev: `abc8caf`, servicios activos y consumer base
+  efectivo `64|opn-oracle-dev`.
+- Gobierno IA Dev: catálogo efectivo de 30 tareas `local-only` sobre
+  `ollama_titan/qwen3-coder:30b`, sin fallback, cloud ni logging de prompts/respuestas. El smoke
+  `memory_extraction` respondió HTTP 200 con coste 0.
+- Memoria: Oracle Dev usa adapter HTTP hacia Signal Dev y outbox bilateral; el consolidado contiene
+  retrieve tenant-safe, Ask con materialización citable, vigilancia/Actividad, informe durable y
+  preflight MDEV-06…09. El endpoint memory.v1 existe y falla cerrado sin credencial (401).
+- Pruebas/entregas registradas: suite Oracle 1850 passed, 0 failed y cobertura 84.12%; Playwright
+  de demo real 1/1; validador legal PASS (9 documentos, 2 pruebas). El gate API fail-closed de
+  `044e35a` está integrado y probado por comportamiento.
+- Retención: `fec3c3e` aísla cada transacción por tenant, incorpora una regresión y el job real de
+  retención terminó en verde en Oracle Dev.
+- El pack comercial y de cumplimiento documental de `8af7150` está integrado en el release; no
+  convierte precio, identidad legal ni revisión jurídica en decisiones técnicas cerradas.
+- Golden path de un tenant: 6/6 a las 02:52 Europe/Madrid; Preguntar devolvió 5 citas, informe
+  HTTP 200, `jobs=0` y coste 0.
+- Estado: `ORC-MEM-001` permanece `under_review 80%`, con AC-1/2/4 met, AC-3 partial y AC-5
+  pending. `ORC-QA-001` permanece `under_review 82%`; AC-3 pasa a met por el gate fail-closed.
+- Pendiente real: MDEV-11 no está completo. Falta crear dos fixtures aislados y ejecutar la matriz
+  A/B de aislamiento cross-tenant, además de medir un expediente real autorizado.
+- Límites: producción no modificada; sin proveedores de pago; precio/posicionamiento, datos
+  legales, revisión jurídica y uso de expediente real siguen siendo decisiones humanas.
+
+
 
 
 ## 2026-08-01  — ORC-MEM-001 / MDEV-01 REWORK-2

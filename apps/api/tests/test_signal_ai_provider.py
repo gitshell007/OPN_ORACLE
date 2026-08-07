@@ -55,6 +55,43 @@ def test_signal_governed_provider_uses_the_confirmed_ai_run_contract(
     assert (result.provider, result.model, result.cost_micros) == ("ollama", "qwen3.5:9b", 0)
 
 
+def test_signal_governed_provider_preserves_safe_422_code_without_raw_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A governed schema rejection is not a transport outage and never leaks model text."""
+
+    from opn_oracle.ai.provider import AIRejected
+
+    secret = "RAW_MODEL_SECRET_MUST_NOT_CROSS_BOUNDARY"
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        del kwargs
+        return httpx.Response(
+            422,
+            request=httpx.Request("POST", url),
+            json={
+                "error": "rt_output_not_json",
+                "error_detail": f"unterminated provider content {secret}",
+                "result": {"content": secret},
+                "request_id": "run-safe-123",
+            },
+        )
+
+    monkeypatch.setattr("opn_oracle.ai.provider.httpx.post", post)
+    provider = SignalGovernedLLMProvider(
+        base_url="https://signal.test", api_key="test-key", timeout_seconds=3
+    )
+
+    with pytest.raises(AIRejected) as caught:
+        provider.run_governed({"task_key": "report_custom_writer", "input": {}})
+
+    assert caught.value.status_code == 422
+    assert caught.value.error_code == "rt_output_not_json"
+    assert caught.value.request_id == "run-safe-123"
+    assert "rt_output_not_json" in str(caught.value)
+    assert secret not in str(caught.value)
+
+
 def test_signal_governed_provider_repairs_one_invalid_structured_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
