@@ -5,6 +5,20 @@ Este historial es complementario al `history` de cada funcionalidad en
 con el comando real o con el archivo que las contiene.
 
 
+## 2026-08-08 — ORA-XENV-ACTIVATE residual · confirm booleano estricto (ORC-SIG-XENV)
+
+- Objetivo: eliminar `bool(payload.get(...))` en create/update/activate; validar
+  `base_url` malformada sin 500.
+- Pruebas: `pytest -q tests/test_signal_connection_admin.py --no-cov` con
+  `oracle_test` + Redis 14 → **15 passed** (incluye string `"false"`, booleano
+  true, URL con puerto inválido, same-host/path).
+- Mutaciones: `bool(value)` → falla string-false; parse sin catch → falla
+  malformed URL. Restaurado y verde.
+- Estado: **implemented en `oracle-dev`, no deployed**. No reclama guardián en
+  producción. ORC-SIG-001 (integración Signal desplegada) no se reescribe como
+  si este parche ya estuviera vivo.
+
+
 ## 2026-08-08 — ORA-XENV-ACTIVATE · ORC-SIG-001 (seguridad activate)
 
 - Objetivo: `POST …/activate` reutiliza el guardián cross-environment; identidad por

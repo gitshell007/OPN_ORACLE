@@ -693,3 +693,191 @@ def test_activate_different_host_stays_blocked_for_owner(
     assert denied.status_code == 403
     assert denied.get_json()["code"] == "signal_cross_environment_platform_required"
     app.config["SIGNAL_AVANZA_BASE_URL"] = "https://signal-test.local"
+
+
+def test_string_false_confirm_never_authorizes_cross_environment(
+    signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """confirm_cross_environment=\"false\" is not JSON true — must not authorize.
+
+    Regression: ``bool(\"false\")`` is True in Python and must never be used.
+    """
+    app, ids, password = signal_admin_stack
+    client = app.test_client()
+    assert _login(client, "sig-super@example.test", password, ids["tenant_a"]).status_code == 200
+
+    # create with string "false" → validation_failed (not confirmation_required)
+    csrf = _fresh_csrf(app, client, password)
+    created = client.post(
+        "/api/v1/integrations/signal-avanza",
+        json={
+            "name": "string-false-create",
+            "adapter_mode": "mock",
+            "base_url": "https://signal.prod.example/api",
+            "confirm_cross_environment": "false",
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert created.status_code == 422, created.get_json()
+    assert created.get_json()["code"] == "validation_failed"
+    listed = client.get("/api/v1/integrations/signal-avanza").get_json()["items"]
+    assert all(item["name"] != "string-false-create" for item in listed)
+
+    # update: seed a same-env connection then try to point cross-env with "false"
+    csrf = _fresh_csrf(app, client, password)
+    seed = client.post(
+        "/api/v1/integrations/signal-avanza",
+        json={"name": "string-false-seed", "adapter_mode": "mock"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert seed.status_code == 201, seed.get_json()
+    seed_id = seed.get_json()["id"]
+    csrf = _fresh_csrf(app, client, password)
+    patched = client.patch(
+        f"/api/v1/integrations/signal-avanza/{seed_id}",
+        json={
+            "base_url": "https://signal.prod.example/api",
+            "confirm_cross_environment": "false",
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert patched.status_code == 422
+    assert patched.get_json()["code"] == "validation_failed"
+    body = client.get("/api/v1/integrations/signal-avanza").get_json()["items"]
+    seed_row = next(item for item in body if item["id"] == seed_id)
+    assert seed_row["base_url"] in (None, "")
+
+    # activate: disabled cross-env connection + string "false"
+    connection_id = _insert_disabled_connection(
+        app,
+        tenant_id=ids["tenant_a"],
+        actor_id=ids["user_super"],
+        name="string-false-activate",
+        base_url="https://signal.prod.example/api",
+    )
+    csrf = _fresh_csrf(app, client, password)
+    activated = client.post(
+        f"/api/v1/integrations/signal-avanza/{connection_id}/activate",
+        json={"confirm_cross_environment": "false"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert activated.status_code == 422
+    assert activated.get_json()["code"] == "validation_failed"
+    listed = client.get("/api/v1/integrations/signal-avanza").get_json()["items"]
+    row = next(item for item in listed if item["id"] == str(connection_id))
+    assert row["status"] == "disabled"
+
+    # Non-boolean types likewise never authorize.
+    for bad in (1, [], {}):
+        csrf = _fresh_csrf(app, client, password)
+        bad_activate = client.post(
+            f"/api/v1/integrations/signal-avanza/{connection_id}/activate",
+            json={"confirm_cross_environment": bad},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert bad_activate.status_code == 422
+        assert bad_activate.get_json()["code"] == "validation_failed"
+
+
+def test_boolean_false_confirm_is_confirmation_required_not_validation(
+    signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """JSON false / absent → confirmation_required (422) for super_admin cross-env."""
+    app, ids, password = signal_admin_stack
+    connection_id = _insert_disabled_connection(
+        app,
+        tenant_id=ids["tenant_a"],
+        actor_id=ids["user_super"],
+        name="bool-false-activate",
+        base_url="https://signal.prod.example/api",
+    )
+    client = app.test_client()
+    assert _login(client, "sig-super@example.test", password, ids["tenant_a"]).status_code == 200
+    csrf = _fresh_csrf(app, client, password)
+    denied = client.post(
+        f"/api/v1/integrations/signal-avanza/{connection_id}/activate",
+        json={"confirm_cross_environment": False},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert denied.status_code == 422
+    assert denied.get_json()["code"] == "signal_cross_environment_confirmation_required"
+    # Boolean true still authorizes (control).
+    csrf = _fresh_csrf(app, client, password)
+    ok = client.post(
+        f"/api/v1/integrations/signal-avanza/{connection_id}/activate",
+        json={"confirm_cross_environment": True},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert ok.status_code == 200, ok.get_json()
+    assert ok.get_json()["status"] == "active"
+
+
+def test_malformed_base_url_returns_422_not_500(
+    signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """Invalid port / non-URL must be validation_failed, never 500."""
+    app, ids, password = signal_admin_stack
+    client = app.test_client()
+    assert _login(client, "sig-super@example.test", password, ids["tenant_a"]).status_code == 200
+
+    for bad_url in (
+        "https://signal.prod.example:99999",
+        "https://signal.prod.example:abc",
+        "not-a-url",
+        "https://",
+    ):
+        csrf = _fresh_csrf(app, client, password)
+        response = client.post(
+            "/api/v1/integrations/signal-avanza",
+            json={
+                "name": f"bad-url-{abs(hash(bad_url)) % 10_000}",
+                "adapter_mode": "mock",
+                "base_url": bad_url,
+                "confirm_cross_environment": True,
+            },
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert response.status_code == 422, (bad_url, response.status_code, response.get_json())
+        assert response.get_json()["code"] == "validation_failed"
+        assert response.status_code != 500
+
+    # Activate of a row that somehow holds a malformed base_url.
+    bad_id = _insert_disabled_connection(
+        app,
+        tenant_id=ids["tenant_a"],
+        actor_id=ids["user_super"],
+        name="stored-bad-port",
+        base_url="https://signal.prod.example:99999",
+    )
+    csrf = _fresh_csrf(app, client, password)
+    activate = client.post(
+        f"/api/v1/integrations/signal-avanza/{bad_id}/activate",
+        json={"confirm_cross_environment": True},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert activate.status_code == 422
+    assert activate.get_json()["code"] == "validation_failed"
+
+
+def test_same_host_different_path_still_skips_confirmation_after_strict_parse(
+    signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """Regresión: identidad por host; path distinto no pide confirmación."""
+    app, ids, password = signal_admin_stack
+    app.config["SIGNAL_AVANZA_BASE_URL"] = "https://signal-dev.example/api/v1/oracle"
+    client = app.test_client()
+    assert _login(client, "sig-owner-a@example.test", password, ids["tenant_a"]).status_code == 200
+    csrf = _fresh_csrf(app, client, password)
+    created = client.post(
+        "/api/v1/integrations/signal-avanza",
+        json={
+            "name": "same-host-path-create",
+            "adapter_mode": "mock",
+            "base_url": "https://signal-dev.example",
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert created.status_code == 201, created.get_json()
+    assert created.get_json()["base_url"] == "https://signal-dev.example"
+    assert created.get_json()["status"] == "active"
+    app.config["SIGNAL_AVANZA_BASE_URL"] = "https://signal-test.local"

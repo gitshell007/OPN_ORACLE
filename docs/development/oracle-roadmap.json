@@ -142,7 +142,7 @@
       "progress_percent": 74,
       "dependencies": ["ORC-MOD-002", "ORC-MOD-003"],
       "risks": ["La activación real depende de contrato, credenciales, cobertura y límites del proveedor."],
-      "feature_ids": ["ORC-SIG-001", "ORC-SIG-002", "ORC-SIG-003"],
+      "feature_ids": ["ORC-SIG-001", "ORC-SIG-002", "ORC-SIG-003", "ORC-SIG-XENV"],
       "readiness": "Media: los contratos locales están avanzados, la operación externa no está habilitada por defecto."
     },
     {
@@ -616,7 +616,7 @@
         "date": "2026-08-08",
         "from": "deployed",
         "to": "deployed",
-        "summary": "ORA-XENV-ACTIVATE: activate reutiliza _enforce_cross_environment_authorization; identidad de entorno por hostname (+ puerto no estándar), no por ruta. Código y tests en oracle-dev; no se afirma despliegue de este SHA."
+        "summary": "ORA-XENV-ACTIVATE en rama (ver ORC-SIG-XENV). ORC-SIG-001 deployed = integración histórica; el parche de guardián/confirm no se afirma en producción aquí."
       }
     ]
     },
@@ -654,6 +654,52 @@
       "updated_at": "2026-07-31",
       "completed_at": "2026-07-31",
       "history": [{"date": "2026-07-31", "from": "in_progress", "to": "validated", "summary": "Dedupe, idempotencia y reconciliation aparecen implementados y cubiertos."}]
+    },
+    {
+      "id": "ORC-SIG-XENV",
+      "module_id": "ORC-MOD-004",
+      "title": "Guardián Signal cross-environment (activate + confirm estricto)",
+      "description": "Parche de seguridad: activate con guardián, identidad por hostname, y confirm_cross_environment booleano JSON estricto. No es el despliegue histórico del contrato Signal.",
+      "problem": "bool(string) y activate sin guardián permitían autorizar destinos cruzados en falso.",
+      "business_objective": "Fail-closed en create/update/activate sin afirmar producción hasta release medido.",
+      "user_value": "Impide reactivar o apuntar Signal a otro entorno sin super_admin y confirmación JSON true.",
+      "user_types": ["administradores de integración", "superadministración de plataforma"],
+      "status": "implemented",
+      "priority": "P0",
+      "progress_percent": 90,
+      "complexity": "M",
+      "technical_risk": "high",
+      "dependencies": ["ORC-SIG-001"],
+      "blockers": [],
+      "acceptance_criteria": [
+        {"id": "AC-1", "text": "activate reutiliza el guardián con base_url y confirm del body.", "status": "met"},
+        {"id": "AC-2", "text": "Solo boolean true autoriza; \"false\"/otros tipos no autorizan.", "status": "met"},
+        {"id": "AC-3", "text": "URL malformada o puerto inválido → 422 sin 500.", "status": "met"},
+        {"id": "AC-4", "text": "Release nativo medido en Oracle Dev con este SHA.", "status": "pending"}
+      ],
+      "functional_requirements": ["create/update/activate con parseo estricto"],
+      "non_functional_requirements": ["fail-closed; sin 500 en urlparse.port"],
+      "security_requirements": ["platform super_admin + confirm JSON true para cross-env"],
+      "multi_tenant_requirements": ["tenant scoping existente"],
+      "audit_requirements": ["cross_environment_confirmed y authorized_by en activate autorizado"],
+      "impact": {"frontend": "mensajes 403/422", "backend": "integrations/routes.py", "database": "ninguna migración", "celery": "n/a", "redis": "n/a", "signal": "destino cross-env", "reports": "n/a", "permissions": "recent_auth + integrations.manage"},
+      "related_files": ["apps/api/src/opn_oracle/integrations/routes.py", "apps/api/tests/test_signal_connection_admin.py", "src/components/admin/signal-admin.tsx"],
+      "related_migrations": [],
+      "related_tests": ["apps/api/tests/test_signal_connection_admin.py"],
+      "implementation_evidence": [
+        {"type": "test", "path": "apps/api/tests/test_signal_connection_admin.py", "claim": "HTTP 422 validation_failed para confirm string false y URL malformada; boolean true autoriza.", "confidence": "high"},
+        {"type": "file", "path": "apps/api/src/opn_oracle/integrations/routes.py", "claim": "Parseo estricto y validación de base_url en create/update/activate.", "confidence": "high"}
+      ],
+      "related_decisions": ["ORC-ADR-0011", "ORC-ADR-0012"],
+      "comments": "ORC-SIG-001 deployed describe la integración Signal histórica. Este ID acota el parche de seguridad: implemented en oracle-dev, no deployed.",
+      "next_action": "Release nativo medido en Oracle Dev; ORA-CI-GATE pendiente",
+      "next_actions": ["Release nativo y verificación en Oracle Dev", "ORA-CI-GATE"],
+      "created_at": "2026-08-08",
+      "updated_at": "2026-08-08",
+      "completed_at": null,
+      "history": [
+        {"date": "2026-08-08", "from": "proposed", "to": "implemented", "summary": "Código y tests en oracle-dev (confirm booleano estricto + base_url 422). Sin release; no evidencia en producción."}
+      ]
     },
     {
       "id": "ORC-SIG-003",

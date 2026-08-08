@@ -111,18 +111,112 @@ def _signal_environment_identity(url: str) -> str | None:
     ``https://signal-dev.example/api/v1/oracle`` and
     ``https://signal-dev.example`` are the same environment. A non-standard
     port (e.g. ``:8443``) is part of the identity; default 443/80 are not.
+
+    Never raises: invalid port or unparseable URL returns ``None`` so callers
+    can fail closed without a 500.
     """
-    parsed = urlparse(str(url).strip())
+    try:
+        parsed = urlparse(str(url).strip())
+    except Exception:
+        return None
     host = (parsed.hostname or "").lower()
     if not host:
         return None
-    port = parsed.port
+    try:
+        port = parsed.port
+    except ValueError:
+        # e.g. :abc or :99999 — not a usable environment identity
+        return None
     scheme = (parsed.scheme or "").lower()
     if port is not None:
         default_port = 443 if scheme == "https" else 80 if scheme == "http" else None
         if default_port is None or port != default_port:
             return f"{host}:{port}"
     return host
+
+
+def _parse_optional_base_url(raw: Any) -> tuple[str | None, Any | None]:
+    """Normalize optional Signal ``base_url`` or return a 422 problem.
+
+    Empty / null remains allowed (mock or host-default modes). A non-empty
+    value must be an http(s) URL with a hostname and a valid port if present.
+    Malformed values never skip the guardian via a 500.
+    """
+    if raw is None:
+        return None, None
+    if not isinstance(raw, str):
+        return None, problem_response(
+            422,
+            detail="base_url debe ser una cadena URL o null.",
+            code="validation_failed",
+        )
+    text = raw.strip()
+    if text == "":
+        return None, None
+    if len(text) > 1000:
+        return None, problem_response(
+            422,
+            detail="base_url supera la longitud máxima permitida.",
+            code="validation_failed",
+        )
+    try:
+        parsed = urlparse(text)
+        # Force port validation (ValueError on non-integer / out-of-range).
+        _ = parsed.port
+    except ValueError:
+        return None, problem_response(
+            422,
+            detail="base_url no es una URL válida (puerto o formato incorrecto).",
+            code="validation_failed",
+        )
+    except Exception:
+        return None, problem_response(
+            422,
+            detail="base_url no es una URL válida.",
+            code="validation_failed",
+        )
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in {"http", "https"}:
+        return None, problem_response(
+            422,
+            detail="base_url debe usar http o https.",
+            code="validation_failed",
+        )
+    if not (parsed.hostname or "").strip():
+        return None, problem_response(
+            422,
+            detail="base_url debe incluir un nombre de host válido.",
+            code="validation_failed",
+        )
+    return text[:1000], None
+
+
+def _parse_confirm_cross_environment(
+    payload: dict[str, Any],
+) -> tuple[bool | None, Any | None]:
+    """Strict JSON boolean for ``confirm_cross_environment``.
+
+    Only the boolean ``true`` authorizes a cross-environment change.
+    ``false`` or an absent field means not confirmed (422 when cross-env).
+    Any non-boolean (``"true"``, ``"false"``, ``1``, ``[]``, ``{}``) is
+    ``validation_failed`` and never authorizes — ``bool("false")`` is True
+    in Python and must not be used.
+    """
+    if "confirm_cross_environment" not in payload:
+        return False, None
+    value = payload["confirm_cross_environment"]
+    if value is True:
+        return True, None
+    if value is False:
+        return False, None
+    return None, problem_response(
+        422,
+        detail=(
+            "confirm_cross_environment debe ser un booleano JSON "
+            "(true o false), no una cadena ni otro tipo."
+        ),
+        code="validation_failed",
+    )
 
 
 def _requires_cross_environment_confirmation(base_url: str | None) -> bool:
@@ -135,11 +229,22 @@ def _requires_cross_environment_confirmation(base_url: str | None) -> bool:
     was pointed at. Comparison uses hostname (+ non-default port), not path:
     configured ``…/api/v1/oracle`` and a connection root on the same host are
     the same environment.
+
+    Unparseable / invalid-port URLs fail closed (require confirmation) and must
+    be rejected earlier by ``_parse_optional_base_url`` before persist/activate.
     """
     if not base_url or not str(base_url).strip():
         return False
     candidate = str(base_url).strip()
-    host = (urlparse(candidate).hostname or "").lower()
+    try:
+        parsed = urlparse(candidate)
+        host = (parsed.hostname or "").lower()
+        # Touch .port so invalid ports cannot silently skip host checks.
+        _ = parsed.port
+    except ValueError:
+        return True
+    except Exception:
+        return True
     if not host or host in {"localhost", "127.0.0.1"} or host.endswith(".local"):
         return False
     expected = str(current_app.config.get("SIGNAL_AVANZA_BASE_URL") or "").strip()
@@ -164,6 +269,8 @@ def _enforce_cross_environment_authorization(
     """Gate cross-environment Signal targets to platform super_admin + confirm.
 
     Returns a problem response to short-circuit the handler, or None when allowed.
+    ``confirmed`` must already be a real bool from
+    ``_parse_confirm_cross_environment`` — never ``bool(payload.get(...))``.
     """
     if not _requires_cross_environment_confirmation(base_url):
         return None
@@ -253,14 +360,15 @@ def create_connection() -> Any:
             detail="El contrato HTTP Signal no está confirmado.",
             code="signal_contract_unconfirmed",
         )
-    base_url_raw = payload.get("base_url")
-    base_url = str(base_url_raw).strip()[:1000] if base_url_raw else None
-    if base_url == "":
-        base_url = None
+    base_url, base_url_error = _parse_optional_base_url(payload.get("base_url"))
+    if base_url_error is not None:
+        return base_url_error
+    confirmed, confirm_error = _parse_confirm_cross_environment(payload)
+    if confirm_error is not None:
+        return confirm_error
+    assert confirmed is not None
     cross_env = _requires_cross_environment_confirmation(base_url)
-    denied = _enforce_cross_environment_authorization(
-        base_url, confirmed=bool(payload.get("confirm_cross_environment"))
-    )
+    denied = _enforce_cross_environment_authorization(base_url, confirmed=confirmed)
     if denied is not None:
         return denied
     status = "active" if mode == "mock" else "pending"
@@ -355,14 +463,21 @@ def update_connection(connection_id: uuid.UUID) -> Any:
             )
         connection.adapter_mode = mode
     if "base_url" in payload:
-        raw = payload.get("base_url")
-        connection.base_url = str(raw).strip()[:1000] if raw else None
-        if connection.base_url == "":
-            connection.base_url = None
+        parsed_url, base_url_error = _parse_optional_base_url(payload.get("base_url"))
+        if base_url_error is not None:
+            return base_url_error
+        connection.base_url = parsed_url
+    # Stored base_url must still be valid before any cross-env gate / persist.
+    if connection.base_url is not None:
+        _, stored_url_error = _parse_optional_base_url(connection.base_url)
+        if stored_url_error is not None:
+            return stored_url_error
+    confirmed, confirm_error = _parse_confirm_cross_environment(payload)
+    if confirm_error is not None:
+        return confirm_error
+    assert confirmed is not None
     cross_env = _requires_cross_environment_confirmation(connection.base_url)
-    denied = _enforce_cross_environment_authorization(
-        connection.base_url, confirmed=bool(payload.get("confirm_cross_environment"))
-    )
+    denied = _enforce_cross_environment_authorization(connection.base_url, confirmed=confirmed)
     if denied is not None:
         return denied
     after = {
@@ -419,10 +534,18 @@ def activate_connection(connection_id: uuid.UUID) -> Any:
         return problem_response(
             422, detail="El cuerpo debe ser un objeto JSON.", code="validation_failed"
         )
+    if connection.base_url is not None:
+        _, base_url_error = _parse_optional_base_url(connection.base_url)
+        if base_url_error is not None:
+            return base_url_error
+    confirmed, confirm_error = _parse_confirm_cross_environment(payload)
+    if confirm_error is not None:
+        return confirm_error
+    assert confirmed is not None
     cross_env = _requires_cross_environment_confirmation(connection.base_url)
     denied = _enforce_cross_environment_authorization(
         connection.base_url,
-        confirmed=bool(payload.get("confirm_cross_environment")),
+        confirmed=confirmed,
     )
     if denied is not None:
         return denied

@@ -29,6 +29,25 @@ Rama: `oracle-dev` (canal `oracle-dev`)
 - Prompt residual del traspaso: `ORA-CI-GATE` sigue pendiente (no ejecutado aquí).
 
 
+## ORA-XENV-ACTIVATE residual · confirm booleano estricto (2026-08-08) · **implementado en rama, no desplegado**
+
+- P0 residual sobre `3458824`: `bool(payload.get("confirm_cross_environment"))`
+  hacía truthy la cadena `"false"` y autorizaba en falso.
+- Corrección: `_parse_confirm_cross_environment` — solo JSON `true` autoriza;
+  `false`/ausente → `confirmation_required` si cross-env; no booleanos →
+  `validation_failed`. Misma lógica en create, update y activate.
+- `base_url` no vacío se valida antes de persistir/activar (http(s)+host+puerto
+  válido); puerto inválido o URL malformada → **422**, no **500**. Identidad
+  de entorno sigue por hostname (+ puerto no estándar), path ignorado.
+- Tests HTTP añadidos (suite `test_signal_connection_admin.py`, 15 passed en
+  `oracle_test`/Redis 14). Mutaciones: `bool(value)` vuelve a fallar el test de
+  string `"false"`; parse sin catch falla el de URL malformada.
+- **No es evidencia de guardián en producción.** ORC-SIG-001 permanece como
+  integración ya desplegada en un release anterior; este parche de seguridad
+  es trabajo **implementado / no desplegado** (véase registro acotado
+  `ORC-SIG-XENV` en el roadmap).
+
+
 ## Consolidación SV2 y Oracle Dev · snapshot verificable (2026-08-07)
 
 - Fuente del snapshot: `fec3c3ee2d10cb375a6753e5d3e33ee2210a766e`, publicado en

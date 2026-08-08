@@ -21,10 +21,23 @@ en `docs/architecture/`; este archivo reúne solo las que afectan directamente a
 - Consecuencias: owner sin `platform_role` recibe 403 al activar cross-env; super_admin sin
   confirmación recibe 422; super_admin confirmado deja auditoría con
   `cross_environment_confirmed` y `authorized_by`.
-- Funcionalidades afectadas: ORC-SIG-001.
+- Funcionalidades afectadas: ORC-SIG-001 (integración histórica), ORC-SIG-XENV (parche seguridad).
 - Archivos afectados: `apps/api/src/opn_oracle/integrations/routes.py`,
   `apps/api/tests/test_signal_connection_admin.py`, `src/components/admin/signal-admin.tsx`,
   cliente OpenAPI.
+
+## ORC-ADR-0012 — confirm_cross_environment es booleano JSON estricto
+
+- Fecha: 2026-08-08
+- Estado: aceptada (implementado en `oracle-dev`; **no desplegado**)
+- Contexto: `bool(payload.get("confirm_cross_environment"))` trata `"false"` como True.
+  OpenAPI no valida en runtime.
+- Decisión: parseo centralizado; solo `true` autoriza; `false`/ausente no; cualquier otro tipo
+  → `validation_failed`. `base_url` malformada → 422 antes de persistir/activar.
+- Motivo: fail-closed; no confiar en coerción de Python ni en el schema como control.
+- Funcionalidades afectadas: ORC-SIG-XENV.
+- Archivos afectados: `apps/api/src/opn_oracle/integrations/routes.py`,
+  `apps/api/tests/test_signal_connection_admin.py`.
 
 ## ORC-ADR-0001 — El roadmap JSON es la fuente estructurada de verdad
 
