@@ -5,6 +5,16 @@ Este historial es complementario al `history` de cada funcionalidad en
 con el comando real o con el archivo que las contiene.
 
 
+## 2026-08-08 — ORA-CI-GATE · ORC-QA-001
+
+- Workflow: `push` → `oracle-dev` con 5 puertas frontend + backend integración
+  efímera; PR→master y dispatch conservan matriz completa (E2E/SBOM).
+- Docs: `docs/operations/CI.md`; invariantes `scripts/check-ci-workflow.sh`.
+- Mutación: pytest principal con `-m "not integration"` → el check script falla.
+- Local: script OK; no se afirma run GHA verde hasta evidencia de Actions.
+- CI **no** es smoke de despliegue.
+
+
 ## 2026-08-08 — ORA-SIGNAL-HTTPS-URL · ORC-SIG-XENV
 
 - `base_url` no vacía exige HTTPS en create/update/activate (422).

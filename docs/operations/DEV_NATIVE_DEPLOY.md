@@ -19,6 +19,10 @@ Reglas:
 - `master` puede avanzar con trabajo no listo para el entorno dev compartido; `oracle-dev` es la línea que el servidor debe ejecutar.
 - Tras mergear a `oracle-dev`, construir release con el SHA exacto y CI aceptable, y activar con symlink `current`.
 - No hacer `git pull` in-place sobre `/opt/opn-oracle/current`.
+- **CI de GitHub** (`.github/workflows/ci.yml`, ver `docs/operations/CI.md`) valida cada
+  **push a `oracle-dev`** con las cinco puertas frontend de `build-release.sh` y el
+  backend con pytest de integración sobre Postgres/Redis **efímeros del runner**.
+  CI verde **no** acredita el SHA activo en este host ni el smoke post-despliegue.
 
 ## Ventana de congelación
 

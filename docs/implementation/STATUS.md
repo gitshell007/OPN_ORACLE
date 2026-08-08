@@ -4,6 +4,26 @@ Actualizado: 2026-08-08
 Rama: `oracle-dev` (canal `oracle-dev`)
 
 
+## ORA-CI-GATE · CI en push a `oracle-dev` (2026-08-08) · **workflow en rama; runs GHA pendientes**
+
+- `.github/workflows/ci.yml`:
+  - conserva `pull_request` → `master` y `workflow_dispatch`;
+  - añade **`push` solo a `oracle-dev`**;
+  - frontend: las **cinco** puertas de `build-release.sh`;
+  - backend: Ruff check/format, mypy, **pytest completo** con
+    `ORACLE_RUN_INTEGRATION=1` y Postgres/Redis **efímeros** del runner
+    (`TEST_DATABASE_URL` / `TEST_RUNTIME_DATABASE_URL` / `TEST_REDIS_URL` →
+    `127.0.0.1` / `oracle_test` / Redis DB 14);
+  - concurrency cancela obsoletos en `push`/`dispatch`, no en PR a master;
+  - E2E + security/images solo en PR/dispatch (coste; integración sí en push).
+- Documentación: `docs/operations/CI.md` (+ enlace en `DEV_NATIVE_DEPLOY.md`).
+- Invariantes: `scripts/check-ci-workflow.sh` (mutación `-m "not integration"`
+  en el pytest principal **falla** el script).
+- **Local medido:** check script OK; ruff/mypy; frontend lint/typecheck/test
+  subset; **no** se declara verde el job GHA completo hasta un run en GitHub.
+- **No acredita** despliegue, SHA activo en host, Signal remoto ni Oracle Dev.
+
+
 ## ORA-XENV-ACTIVATE · guardián en `activate` (2026-08-08) · **código en rama, no desplegado**
 
 - Alcance: cierre del agujero P0 del traspaso 2026-08-08 — `activate_connection` no

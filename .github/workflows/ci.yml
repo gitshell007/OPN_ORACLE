@@ -1,9 +1,26 @@
+# OPN Oracle CI — aligned with infra/native-dev/build-release.sh frontend gates
+# and disposable PostgreSQL/Redis integration for the API.
+#
+# Triggers:
+#   - pull_request → master: full matrix (frontend + backend + e2e + security)
+#   - push → oracle-dev only: release-critical gates (frontend five + backend
+#     with real integration). E2E browser and image SBOM stay on PR/dispatch
+#     to keep the deploy channel green without multi-hour redundant scans on
+#     every push; integration pytest still runs on every oracle-dev push.
+#   - workflow_dispatch: full matrix (manual)
+#
+# CI proves a commit is green on an ephemeral runner. It does NOT prove:
+# deployment, active release SHA, Oracle Dev host state, or Signal remote.
+# Post-deploy smoke is a separate operational gate (DEV_NATIVE_DEPLOY.md).
 name: CI
 
 on:
   pull_request:
     branches:
       - master
+  push:
+    branches:
+      - oracle-dev
   workflow_dispatch:
     inputs:
       reason:
@@ -14,9 +31,12 @@ on:
 permissions:
   contents: read
 
+# Cancel obsolete runs of the same ref (e.g. successive pushes to oracle-dev).
+# Do not cancel-in-progress for pull_request against master so PR checks can
+# finish without being aborted by a later push to the PR branch mid-run.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
 
 jobs:
   frontend:
@@ -32,6 +52,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # Five frontend doors from build-release.sh (order preserved).
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test -- --run
@@ -42,6 +63,8 @@ jobs:
     name: Backend, migrations and integration
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    # Ephemeral only — never Oracle Dev or any shared remote database.
+    # The integration fixture may downgrade/upgrade/flush the pointed DB.
     services:
       postgres:
         image: postgres:17-bookworm
@@ -67,6 +90,7 @@ jobs:
       POSTGRES_DB: oracle_test
       ORACLE_MIGRATOR_PASSWORD: ci-migrator-only
       ORACLE_APP_PASSWORD: ci-app-only
+      # Full suite including pytest.mark.integration (no -m "not integration").
       ORACLE_RUN_INTEGRATION: "1"
       TEST_DATABASE_URL: postgresql+psycopg://oracle_migrator:ci-migrator-only@127.0.0.1:5432/oracle_test
       TEST_RUNTIME_DATABASE_URL: postgresql+psycopg://oracle_app:ci-app-only@127.0.0.1:5432/oracle_test
@@ -100,8 +124,11 @@ jobs:
           uv run ruff check src tests migrations
           uv run ruff format --check src tests migrations
           uv run mypy src
-      - name: Tests with PostgreSQL, Redis and Celery
+      - name: Full pytest (unit + integration, coverage gate)
         working-directory: apps/api
+        # Full suite: addopts in pyproject.toml enforce cov-fail-under=84.
+        # Do NOT add -m "not integration", --ignore of integration modules,
+        # or --no-cov here — oracle-dev must stay release-credible.
         # -vv + --durations so the GitHub log shows the last/slowest tests
         # (mutation subprocess must not inherit integration lock env — see
         # tests/test_memory_v1_mutations.py).
@@ -150,6 +177,9 @@ jobs:
 
   frontend-e2e:
     name: Frontend E2E
+    # Full browser matrix on PR→master and manual dispatch only.
+    # Push to oracle-dev relies on frontend unit + backend integration.
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     services:
@@ -209,6 +239,7 @@ jobs:
 
   security-and-images:
     name: Security, images and SBOM
+    if: github.event_name != 'push'
     needs: [frontend, backend, frontend-e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 30

@@ -26,6 +26,22 @@ en `docs/architecture/`; este archivo reúne solo las que afectan directamente a
   `apps/api/tests/test_signal_connection_admin.py`, `src/components/admin/signal-admin.tsx`,
   cliente OpenAPI.
 
+## ORC-ADR-0013 — CI en push a oracle-dev (ORA-CI-GATE)
+
+- Fecha: 2026-08-08
+- Estado: aceptada (workflow en rama; evidencia GHA pendiente del primer run)
+- Contexto: las puertas de release solo corrían en PR→master; `oracle-dev` se
+  validaba a mano y era la fuente de releases nativos.
+- Decisión:
+  1. Trigger `push` solo para `oracle-dev`, sin quitar PR→master ni dispatch.
+  2. Push ejecuta las 5 puertas frontend de `build-release.sh` + backend con
+     pytest de integración sobre Postgres/Redis efímeros del runner.
+  3. E2E y security/images quedan en PR/dispatch (coste); integración no se omite.
+  4. CI no acredita despliegue ni estado del host (documentado en `CI.md`).
+- Funcionalidades afectadas: ORC-QA-001.
+- Archivos: `.github/workflows/ci.yml`, `docs/operations/CI.md`,
+  `scripts/check-ci-workflow.sh`.
+
 ## ORC-ADR-0012 — confirm_cross_environment es booleano JSON estricto
 
 - Fecha: 2026-08-08
