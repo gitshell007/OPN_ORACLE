@@ -675,7 +675,8 @@
         {"id": "AC-1", "text": "activate reutiliza el guardián con base_url y confirm del body.", "status": "met"},
         {"id": "AC-2", "text": "Solo boolean true autoriza; \"false\"/otros tipos no autorizan.", "status": "met"},
         {"id": "AC-3", "text": "URL malformada o puerto inválido → 422 sin 500.", "status": "met"},
-        {"id": "AC-4", "text": "Release nativo medido en Oracle Dev con este SHA.", "status": "pending"}
+        {"id": "AC-4", "text": "Release nativo medido en Oracle Dev con este SHA.", "status": "pending"},
+        {"id": "AC-5", "text": "base_url no vacía exige HTTPS; http:// se rechaza en create/update/activate sin desactivar otras conexiones.", "status": "met"}
       ],
       "functional_requirements": ["create/update/activate con parseo estricto"],
       "non_functional_requirements": ["fail-closed; sin 500 en urlparse.port"],
@@ -691,14 +692,15 @@
         {"type": "file", "path": "apps/api/src/opn_oracle/integrations/routes.py", "claim": "Parseo estricto y validación de base_url en create/update/activate.", "confidence": "high"}
       ],
       "related_decisions": ["ORC-ADR-0011", "ORC-ADR-0012"],
-      "comments": "ORC-SIG-001 deployed describe la integración Signal histórica. Este ID acota el parche de seguridad: implemented en oracle-dev, no deployed.",
+      "comments": "ORC-SIG-001 deployed = integración histórica. ORC-SIG-XENV = parches seguridad en rama (guardián, confirm booleano, HTTPS obligatorio). No deployed.",
       "next_action": "Release nativo medido en Oracle Dev; ORA-CI-GATE pendiente",
       "next_actions": ["Release nativo y verificación en Oracle Dev", "ORA-CI-GATE"],
       "created_at": "2026-08-08",
       "updated_at": "2026-08-08",
       "completed_at": null,
       "history": [
-        {"date": "2026-08-08", "from": "proposed", "to": "implemented", "summary": "Código y tests en oracle-dev (confirm booleano estricto + base_url 422). Sin release; no evidencia en producción."}
+        {"date": "2026-08-08", "from": "proposed", "to": "implemented", "summary": "Código y tests en oracle-dev (confirm booleano estricto + base_url 422). Sin release; no evidencia en producción."},
+        {"date": "2026-08-08", "from": "implemented", "to": "implemented", "summary": "ORA-SIGNAL-HTTPS-URL: base_url no vacía exige HTTPS; activate http heredada no tumba la activa. No desplegado."}
       ]
     },
     {

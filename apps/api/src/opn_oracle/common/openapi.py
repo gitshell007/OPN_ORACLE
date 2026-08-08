@@ -623,7 +623,14 @@ def _response_schemas() -> dict[str, Any]:
                 "status": {"type": "string"},
                 "adapter_mode": {"type": "string"},
                 "api_version": {"type": "string"},
-                "base_url": {"type": "string", "nullable": True},
+                "base_url": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": (
+                        "URL base del destino Signal. Si se informa, debe ser HTTPS "
+                        "con host y puerto válidos; vacío o null se permite en mock."
+                    ),
+                },
                 "circuit_state": {"type": "string"},
                 "last_health_at": {"type": "string", "format": "date-time", "nullable": True},
                 "last_success_at": {"type": "string", "format": "date-time", "nullable": True},
@@ -637,7 +644,14 @@ def _response_schemas() -> dict[str, Any]:
             "additionalProperties": False,
             "properties": {
                 "name": {"type": "string"},
-                "base_url": {"type": "string", "nullable": True},
+                "base_url": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": (
+                        "URL base del destino Signal. Si se informa, debe ser HTTPS "
+                        "(http:// se rechaza con validation_failed)."
+                    ),
+                },
                 "api_version": {"type": "string"},
                 "adapter_mode": {"type": "string", "enum": ["mock", "http"]},
                 "confirm_cross_environment": {"type": "boolean"},

@@ -5,6 +5,14 @@ Este historial es complementario al `history` de cada funcionalidad en
 con el comando real o con el archivo que las contiene.
 
 
+## 2026-08-08 — ORA-SIGNAL-HTTPS-URL · ORC-SIG-XENV
+
+- `base_url` no vacía exige HTTPS en create/update/activate (422).
+- Activate de conexión HTTP heredada: 422, disabled, no desactiva la activa.
+- Integración: `oracle_test` + Redis 14 · suite signal connection admin.
+- **implemented en rama, no deployed.**
+
+
 ## 2026-08-08 — ORA-XENV-ACTIVATE residual · confirm booleano estricto (ORC-SIG-XENV)
 
 - Objetivo: eliminar `bool(payload.get(...))` en create/update/activate; validar

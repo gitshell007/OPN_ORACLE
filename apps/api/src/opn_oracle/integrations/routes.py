@@ -139,7 +139,8 @@ def _parse_optional_base_url(raw: Any) -> tuple[str | None, Any | None]:
     """Normalize optional Signal ``base_url`` or return a 422 problem.
 
     Empty / null remains allowed (mock or host-default modes). A non-empty
-    value must be an http(s) URL with a hostname and a valid port if present.
+    value must be an **HTTPS** URL with a hostname and a valid port if present
+    (aligned with ``HttpSignalAvanzaAdapter``, which rejects plain HTTP).
     Malformed values never skip the guardian via a 500.
     """
     if raw is None:
@@ -176,10 +177,10 @@ def _parse_optional_base_url(raw: Any) -> tuple[str | None, Any | None]:
             code="validation_failed",
         )
     scheme = (parsed.scheme or "").lower()
-    if scheme not in {"http", "https"}:
+    if scheme != "https":
         return None, problem_response(
             422,
-            detail="base_url debe usar http o https.",
+            detail="base_url de Signal debe usar HTTPS (http:// no está permitido).",
             code="validation_failed",
         )
     if not (parsed.hostname or "").strip():

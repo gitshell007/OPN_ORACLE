@@ -37803,6 +37803,7 @@ export interface components {
         SignalConnectionResponse: {
             adapter_mode: string;
             api_version: string;
+            /** @description URL base del destino Signal. Si se informa, debe ser HTTPS con host y puerto válidos; vacío o null se permite en mock. */
             base_url?: string | null;
             circuit_state: string;
             /** Format: uuid */
@@ -37821,6 +37822,7 @@ export interface components {
             /** @enum {string} */
             adapter_mode?: "mock" | "http";
             api_version?: string;
+            /** @description URL base del destino Signal. Si se informa, debe ser HTTPS (http:// se rechaza con validation_failed). */
             base_url?: string | null;
             confirm_cross_environment?: boolean;
             name?: string;

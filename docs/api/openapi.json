@@ -11512,6 +11512,7 @@
             "type": "string"
           },
           "base_url": {
+            "description": "URL base del destino Signal. Si se informa, debe ser HTTPS con host y puerto v\u00e1lidos; vac\u00edo o null se permite en mock.",
             "nullable": true,
             "type": "string"
           },
@@ -11575,6 +11576,7 @@
             "type": "string"
           },
           "base_url": {
+            "description": "URL base del destino Signal. Si se informa, debe ser HTTPS (http:// se rechaza con validation_failed).",
             "nullable": true,
             "type": "string"
           },

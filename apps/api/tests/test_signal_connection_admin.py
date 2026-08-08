@@ -881,3 +881,98 @@ def test_same_host_different_path_still_skips_confirmation_after_strict_parse(
     assert created.get_json()["base_url"] == "https://signal-dev.example"
     assert created.get_json()["status"] == "active"
     app.config["SIGNAL_AVANZA_BASE_URL"] = "https://signal-test.local"
+
+
+def test_http_base_url_rejected_on_create_and_update(
+    signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """ORA-SIGNAL-HTTPS-URL: http:// no se persiste en create ni update."""
+    app, ids, password = signal_admin_stack
+    client = app.test_client()
+    assert _login(client, "sig-super@example.test", password, ids["tenant_a"]).status_code == 200
+
+    csrf = _fresh_csrf(app, client, password)
+    created = client.post(
+        "/api/v1/integrations/signal-avanza",
+        json={
+            "name": "http-not-allowed",
+            "adapter_mode": "mock",
+            "base_url": "http://signal.prod.example/api",
+            "confirm_cross_environment": True,
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert created.status_code == 422, created.get_json()
+    assert created.get_json()["code"] == "validation_failed"
+    listed = client.get("/api/v1/integrations/signal-avanza").get_json()["items"]
+    assert all(item["name"] != "http-not-allowed" for item in listed)
+
+    csrf = _fresh_csrf(app, client, password)
+    seed = client.post(
+        "/api/v1/integrations/signal-avanza",
+        json={"name": "https-seed-for-http-patch", "adapter_mode": "mock"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert seed.status_code == 201, seed.get_json()
+    seed_id = seed.get_json()["id"]
+    before_url = seed.get_json().get("base_url")
+
+    csrf = _fresh_csrf(app, client, password)
+    patched = client.patch(
+        f"/api/v1/integrations/signal-avanza/{seed_id}",
+        json={
+            "base_url": "http://signal.prod.example/api",
+            "confirm_cross_environment": True,
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert patched.status_code == 422
+    assert patched.get_json()["code"] == "validation_failed"
+    after = client.get("/api/v1/integrations/signal-avanza").get_json()["items"]
+    row = next(item for item in after if item["id"] == seed_id)
+    assert row.get("base_url") == before_url
+
+
+def test_activate_inherited_http_base_url_rejects_without_disabling_others(
+    signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """HTTP heredada: activate → 422, sigue disabled y no tumba la activa del tenant."""
+    app, ids, password = signal_admin_stack
+    client = app.test_client()
+    assert _login(client, "sig-super@example.test", password, ids["tenant_a"]).status_code == 200
+
+    # Conexión activa legítima (mock, sin base_url o https same-env).
+    csrf = _fresh_csrf(app, client, password)
+    active = client.post(
+        "/api/v1/integrations/signal-avanza",
+        json={"name": "active-good-https", "adapter_mode": "mock"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert active.status_code == 201, active.get_json()
+    active_id = active.get_json()["id"]
+    assert active.get_json()["status"] == "active"
+
+    http_id = _insert_disabled_connection(
+        app,
+        tenant_id=ids["tenant_a"],
+        actor_id=ids["user_super"],
+        name="legacy-http-disabled",
+        base_url="http://signal.prod.example/api",
+    )
+
+    csrf = _fresh_csrf(app, client, password)
+    denied = client.post(
+        f"/api/v1/integrations/signal-avanza/{http_id}/activate",
+        json={"confirm_cross_environment": True},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert denied.status_code == 422, denied.get_json()
+    assert denied.get_json()["code"] == "validation_failed"
+
+    listed = {
+        item["id"]: item
+        for item in client.get("/api/v1/integrations/signal-avanza").get_json()["items"]
+    }
+    assert listed[str(http_id)]["status"] == "disabled"
+    assert listed[str(http_id)]["base_url"] == "http://signal.prod.example/api"
+    assert listed[active_id]["status"] == "active"

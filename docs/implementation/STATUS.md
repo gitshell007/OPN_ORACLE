@@ -36,7 +36,7 @@ Rama: `oracle-dev` (canal `oracle-dev`)
 - Corrección: `_parse_confirm_cross_environment` — solo JSON `true` autoriza;
   `false`/ausente → `confirmation_required` si cross-env; no booleanos →
   `validation_failed`. Misma lógica en create, update y activate.
-- `base_url` no vacío se valida antes de persistir/activar (http(s)+host+puerto
+- `base_url` no vacío se valida antes de persistir/activar (HTTPS+host+puerto
   válido); puerto inválido o URL malformada → **422**, no **500**. Identidad
   de entorno sigue por hostname (+ puerto no estándar), path ignorado.
 - Tests HTTP añadidos (suite `test_signal_connection_admin.py`, 15 passed en
@@ -46,6 +46,18 @@ Rama: `oracle-dev` (canal `oracle-dev`)
   integración ya desplegada en un release anterior; este parche de seguridad
   es trabajo **implementado / no desplegado** (véase registro acotado
   `ORC-SIG-XENV` en el roadmap).
+
+
+## ORA-SIGNAL-HTTPS-URL (2026-08-08) · **implementado en rama, no desplegado**
+
+- P1: `_parse_optional_base_url` admitía `http://` mientras el adapter HTTP exige
+  HTTPS; activar una conexión HTTP heredada podía tumbar la activa al fallar en
+  worker.
+- Corrección: `base_url` no vacía exige **HTTPS** (422 `validation_failed` en
+  create/update/activate). Activate de `http://` heredada no desactiva otras.
+- Suite `test_signal_connection_admin.py` ampliada; mutación que reabre `http`
+  en el parseo hace fallar `test_http_base_url_rejected_on_create_and_update`.
+- **No desplegado.** Sin tocar Oracle Dev ni conexiones remotas.
 
 
 ## Consolidación SV2 y Oracle Dev · snapshot verificable (2026-08-07)
