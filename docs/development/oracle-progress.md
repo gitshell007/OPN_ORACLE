@@ -18,8 +18,9 @@ con el comando real o con el archivo que las contiene.
 - Workflow: `push` → `oracle-dev` con 5 puertas frontend + backend integración
   efímera; PR→master y dispatch conservan matriz completa (E2E/SBOM).
 - Docs: `docs/operations/CI.md`; invariantes `scripts/check-ci-workflow.sh`.
-- Mutación: pytest principal con `-m "not integration"` → el check script falla.
-- Local: script OK; no se afirma run GHA verde hasta evidencia de Actions.
+- **GHA verde:** run 31268621947 sobre `c7c16f3` (push oracle-dev).
+- **Follow-up:** job `ci-contract` ejecuta el check de invariantes en CI.
+- bd2a4eb: E2E insets local; sin E2E remoto en Actions aún.
 - CI **no** es smoke de despliegue.
 
 

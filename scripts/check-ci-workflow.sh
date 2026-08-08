@@ -111,4 +111,14 @@ fi
 grep -Fq 'image: postgres:17-bookworm' "$WF" || fail "ephemeral postgres service missing"
 grep -Fq 'image: redis:7.4-bookworm' "$WF" || fail "ephemeral redis service missing"
 
+# Self-host: this script must run inside the workflow (ORA-CI-GATE-FOLLOWUP).
+# Otherwise the contract can be relaxed and the control never executes on GHA.
+if ! grep -Fq 'scripts/check-ci-workflow.sh' "$WF"; then
+  fail "workflow must run bash scripts/check-ci-workflow.sh (self-check missing)"
+fi
+# Prefer an early/dedicated job before heavy installs.
+if ! grep -Eq 'ci-contract|Check CI workflow invariants|check-ci-workflow' "$WF"; then
+  fail "workflow must expose an early ci-contract / invariants step"
+fi
+
 echo "OK: $WF satisfies ORA-CI-GATE invariants"

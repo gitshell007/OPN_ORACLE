@@ -20,23 +20,24 @@ Rama: `oracle-dev` (canal `oracle-dev`)
 - **No desplegado.**
 
 
-## ORA-CI-GATE · CI en push a `oracle-dev` (2026-08-08) · **workflow en rama; runs GHA pendientes**
+## ORA-CI-GATE · CI en push a `oracle-dev` (2026-08-08) · **evidencia remota + follow-up**
 
 - `.github/workflows/ci.yml`:
-  - conserva `pull_request` → `master` y `workflow_dispatch`;
-  - añade **`push` solo a `oracle-dev`**;
+  - `pull_request` → `master`, **`push` solo a `oracle-dev`**, `workflow_dispatch`;
   - frontend: las **cinco** puertas de `build-release.sh`;
   - backend: Ruff check/format, mypy, **pytest completo** con
-    `ORACLE_RUN_INTEGRATION=1` y Postgres/Redis **efímeros** del runner
-    (`TEST_DATABASE_URL` / `TEST_RUNTIME_DATABASE_URL` / `TEST_REDIS_URL` →
-    `127.0.0.1` / `oracle_test` / Redis DB 14);
+    `ORACLE_RUN_INTEGRATION=1` y Postgres/Redis **efímeros** del runner;
   - concurrency cancela obsoletos en `push`/`dispatch`, no en PR a master;
-  - E2E + security/images solo en PR/dispatch (coste; integración sí en push).
-- Documentación: `docs/operations/CI.md` (+ enlace en `DEV_NATIVE_DEPLOY.md`).
-- Invariantes: `scripts/check-ci-workflow.sh` (mutación `-m "not integration"`
-  en el pytest principal **falla** el script).
-- **Local medido:** check script OK; ruff/mypy; frontend lint/typecheck/test
-  subset; **no** se declara verde el job GHA completo hasta un run en GitHub.
+  - E2E + security/images solo en PR/dispatch (integración sí en push).
+- **Evidencia GHA verificable:** run
+  [31268621947](https://github.com/gitshell007/OPN_ORACLE/actions/runs/31268621947)
+  **success** sobre SHA `c7c16f386aa30576539a8ef57f22be64987a97d0` (push oracle-dev).
+- **ORA-CI-GATE-FOLLOWUP:** job `ci-contract` ejecuta
+  `bash scripts/check-ci-workflow.sh` antes de instalar dependencias (el control
+  de invariantes ya no puede desaparecer en silencio).
+- Docs: `docs/operations/CI.md`.
+- **bd2a4eb** (insets): E2E **local** real; **sin** evidencia E2E remota en Actions
+  (hace falta `workflow_dispatch` o PR→master).
 - **No acredita** despliegue, SHA activo en host, Signal remoto ni Oracle Dev.
 
 

@@ -1,8 +1,8 @@
 # Despliegue nativo de desarrollo — Oracle
 
-**Host:** `oracle-dev.opnconsultoria.com` → `159.195.216.33`  
-**Modelo:** sin Docker para Oracle; systemd + PostgreSQL/Redis/Nginx nativos.  
-**Fecha de arranque:** 2026-07-28  
+**Host:** `oracle-dev.opnconsultoria.com` → `159.195.216.33`
+**Modelo:** sin Docker para Oracle; systemd + PostgreSQL/Redis/Nginx nativos.
+**Fecha de arranque:** 2026-07-28
 
 ## Rama de despliegue
 
