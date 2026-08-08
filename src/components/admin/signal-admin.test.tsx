@@ -85,6 +85,19 @@ vi.mock("sonner", () => ({
 import { ApiError } from "@oracle/api-client";
 import { SignalAdmin } from "./signal-admin";
 
+/** Problem completo: `tsc --noEmit` valida contra el tipo real, no contra el mock. */
+function apiError(status: number, code: string, detail: string): ApiError {
+  return new ApiError(status, {
+    type: "about:blank",
+    title: code,
+    status,
+    detail,
+    instance: "",
+    code,
+    request_id: "",
+  });
+}
+
 const connection = {
   id: "connection-1",
   provider: "signal-avanza",
@@ -239,10 +252,7 @@ describe("SignalAdmin", () => {
   it("crear conexión pasa por useRecentAuth y reintenta tras reautenticación", async () => {
     mocks.create
       .mockRejectedValueOnce(
-        new ApiError(401, {
-          code: "recent_auth_required",
-          detail: "Vuelve a introducir tu contraseña para continuar.",
-        }),
+        apiError(401, "recent_auth_required", "Vuelve a introducir tu contraseña para continuar."),
       )
       .mockResolvedValueOnce({ ...connection, id: "connection-new" });
     mocks.recentRun.mockImplementation(async (action: () => Promise<unknown>) => {
@@ -274,10 +284,7 @@ describe("SignalAdmin", () => {
 
   it("un 401 de reauth se muestra como confirmación de contraseña, no genérico", async () => {
     mocks.activate.mockRejectedValue(
-      new ApiError(401, {
-        code: "recent_auth_required",
-        detail: "Vuelve a introducir tu contraseña para continuar.",
-      }),
+      apiError(401, "recent_auth_required", "Vuelve a introducir tu contraseña para continuar."),
     );
     // recent.run rethrows if not handling — surface to UI
     mocks.recentRun.mockImplementation(async (action: () => Promise<unknown>) => {
@@ -302,11 +309,11 @@ describe("SignalAdmin", () => {
 
   it("un 403 de plataforma muestra su mensaje propio", async () => {
     mocks.create.mockRejectedValue(
-      new ApiError(403, {
-        code: "signal_cross_environment_platform_required",
-        detail:
-          "Apuntar a una instancia de Signal distinta de este despliegue requiere superadministración de plataforma.",
-      }),
+      apiError(
+        403,
+        "signal_cross_environment_platform_required",
+        "Apuntar a una instancia de Signal distinta de este despliegue requiere superadministración de plataforma.",
+      ),
     );
     render(<SignalAdmin />);
     await screen.findByText("Saludable");
