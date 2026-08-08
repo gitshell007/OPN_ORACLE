@@ -5,6 +5,14 @@ Este historial es complementario al `history` de cada funcionalidad en
 con el comando real o con el archivo que las contiene.
 
 
+## 2026-08-08 — ORA-UI-PANEL-INSETS
+
+- Anatomía Vector opt-in (body/stack/flush/strip) con tokens de espaciado.
+- Prioridad: perfil expediente + actores a encontrar; auditoría de `.vector-panel`.
+- Playwright insets 3 viewports; unit tests body region; capturas before/after.
+- **implemented en rama, no deployed.**
+
+
 ## 2026-08-08 — ORA-CI-GATE · ORC-QA-001
 
 - Workflow: `push` → `oracle-dev` con 5 puertas frontend + backend integración

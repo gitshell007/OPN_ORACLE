@@ -1216,9 +1216,9 @@
       "multi_tenant_requirements": ["Mostrar forbidden/tenant switch de forma explícita."],
       "audit_requirements": ["Smoke/review evidence tied to release."],
       "impact": {"frontend": "Directo.", "backend": "Problem responses y auth errors.", "database": "Ninguno.", "celery": "Progress/error states.", "redis": "Session expired.", "signal": "Sync errors.", "reports": "Download errors.", "permissions": "Forbidden states."},
-      "related_files": ["tests/e2e/accessibility-security.spec.ts", "tests/e2e/smoke.spec.ts", "src/app/globals.css", "docs/quality/TEST_STRATEGY.md"],
+      "related_files": ["tests/e2e/accessibility-security.spec.ts", "tests/e2e/smoke.spec.ts", "tests/e2e/vector-panel-insets.spec.ts", "src/styles/concept-a.css", "docs/ui/vector-panel-anatomy.md", "docs/quality/TEST_STRATEGY.md"],
       "related_migrations": [],
-      "related_tests": ["tests/e2e/accessibility-security.spec.ts", "tests/e2e/smoke.spec.ts", "src/lib/http-security.test.ts"],
+      "related_tests": ["tests/e2e/accessibility-security.spec.ts", "tests/e2e/smoke.spec.ts", "tests/e2e/vector-panel-insets.spec.ts", "src/lib/http-security.test.ts"],
       "implementation_evidence": [{"type": "test", "path": "tests/e2e/accessibility-security.spec.ts", "claim": "Suite E2E de accesibilidad/seguridad existente.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/STATUS.md", "claim": "Estado registra gate E2E rojo en procurement-wizard.", "confidence": "medium"}],
       "related_decisions": ["ORC-ADR-0003"],
       "comments": "Las rutas cubiertas por accessibility-security y procurement-wizard se revalidaron en desktop y móvil el 2026-08-01; quedan pendientes otros criterios parciales de UX.",
@@ -1226,7 +1226,7 @@
       "created_at": "2026-07-31",
       "updated_at": "2026-08-01",
       "completed_at": null,
-      "history": [{"date": "2026-07-31", "from": "implemented", "to": "under_review", "summary": "Pruebas y patrones existen; permanece un gate E2E conocido."}, {"date": "2026-08-01", "from": "under_review", "to": "under_review", "summary": "Gate E2E conocido cerrado: Axe y wizard pasan en desktop y móvil; no se elevan criterios parciales sin evidencia adicional."}]
+      "history": [{"date": "2026-07-31", "from": "implemented", "to": "under_review", "summary": "Pruebas y patrones existen; permanece un gate E2E conocido."}, {"date": "2026-08-01", "from": "under_review", "to": "under_review", "summary": "Gate E2E conocido cerrado: Axe y wizard pasan en desktop y móvil; no se elevan criterios parciales sin evidencia adicional."}, {"date": "2026-08-08", "from": "under_review", "to": "under_review", "summary": "ORA-UI-PANEL-INSETS: anatomía body/stack/flush/strip de vector-panel; insets en perfil y actores; Playwright de bounding boxes. No deployed."}]
     },
     {
       "id": "ORC-UX-004",

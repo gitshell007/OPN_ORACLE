@@ -248,6 +248,7 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
           </AsyncActionButton>
         </PermissionGate>
       </header>
+      <div className="vector-panel-body vector-panel-body--stack">
       {loading ? (
         <p role="status">Cargando análisis del expediente...</p>
       ) : error ? (
@@ -345,6 +346,7 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
       {state?.job?.status === "failed" && (
         <p className="oracle-warning"><AlertCircle size={15} /> La última actualización falló; se conserva la versión anterior.</p>
       )}
+      </div>
       {pendingDraft && (
         <div className="vector-dialog-backdrop" role="presentation">
           <div className="vector-dialog oracle-draft-confirm" role="dialog" aria-modal="true" aria-labelledby="oracle-draft-title">

@@ -159,6 +159,16 @@ describe("resolveActorDiscoveryFailure", () => {
 });
 
 describe("ActorDiscoveryPanel — lenguaje de producto", () => {
+  it("coloca empty/idle y CTA dentro del cuerpo inset, no pegados al panel", async () => {
+    render(<ActorDiscoveryPanel dossierId="d1" />);
+    const panel = await screen.findByTestId("actor-discovery-panel");
+    const body = screen.getByTestId("actor-discovery-body");
+    expect(panel).toContainElement(body);
+    // Idle empty copy lives under the body region.
+    expect(body).toContainElement(screen.getByTestId("actor-discovery-idle"));
+    expect(panel.querySelector("header")).not.toContainElement(body);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.authIdentity.user.platform_role = null;

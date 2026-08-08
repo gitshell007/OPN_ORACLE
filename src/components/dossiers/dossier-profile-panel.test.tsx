@@ -66,6 +66,30 @@ const customDraft: CustomProfileDraft = {
 };
 
 describe("DossierProfilePanel", () => {
+  it("en lectura envuelve empty state y acciones en cuerpo con inset (contrato Vector)", () => {
+    render(
+      <DossierProfilePanel
+        dossierId="d1"
+        dossierType="market"
+        profileConfig={null}
+        draft={null}
+        onDraftChange={() => undefined}
+        onSave={(event) => event.preventDefault()}
+        readOnly
+      />,
+    );
+    const panel = screen.getByTestId("dossier-profile-summary");
+    const body = screen.getByTestId("dossier-profile-body");
+    expect(panel).toContainElement(body);
+    expect(body).toHaveTextContent(/Aún no hay oferta propia/i);
+    expect(body.querySelector("a")).toHaveAttribute(
+      "href",
+      "/app/dossiers/d1/settings#dossier-profile",
+    );
+    // Body is a distinct region under the panel (not the header).
+    expect(panel.querySelector("header")).not.toContainElement(body);
+  });
+
   afterEach(cleanup);
 
   it("muestra y edita el perfil de mercado en configuración", () => {

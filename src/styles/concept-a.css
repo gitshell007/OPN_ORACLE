@@ -2177,8 +2177,9 @@
   scrollbar-gutter: stable;
 }
 .home-side .vector-panel > .reporting-hint {
+  /* Prefer .vector-panel-body; keep legacy direct-child hint indented. */
   margin: 0;
-  padding: 14px 16px;
+  padding: var(--space-3) var(--space-4);
 }
 .setting-checkbox {
   display: flex;
@@ -3069,24 +3070,68 @@
   color: #657487;
 }
 .vector-panel {
+  /* Anatomy tokens: header pad-x and body pad-x share the same inset so
+     body content lines up with the header title (ORA-UI-PANEL-INSETS). */
+  --vector-panel-pad-x: var(--space-4);
+  --vector-panel-pad-y: var(--space-3);
+  --vector-panel-pad-y-header: var(--space-3);
   background: var(--va-panel);
   border: 1px solid var(--va-border);
   border-radius: var(--va-radius);
   box-shadow: var(--va-shadow);
+  min-width: 0;
 }
 .vector-panel > header,
 .dossiers-panel > header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+  padding: var(--vector-panel-pad-y-header, var(--space-3))
+    var(--vector-panel-pad-x, var(--space-4));
   border-bottom: 1px solid var(--va-border);
-  gap: 12px;
+  gap: var(--space-3);
 }
 .vector-panel header h2,
 .dossiers-panel header h2 {
   font-size: 15px;
   margin: 0;
+}
+/* Opt-in body: normal content inset (text, lists, CTAs, empty states). */
+.vector-panel-body {
+  padding: var(--vector-panel-pad-y) var(--vector-panel-pad-x);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.vector-panel-body--stack {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+}
+/* Nested panel bodies: avoid stacking double inset. */
+.vector-panel .vector-panel > .vector-panel-body {
+  /* Nested panels keep their own single inset relative to the inner panel. */
+  padding: var(--vector-panel-pad-y) var(--vector-panel-pad-x);
+}
+/* Flush / edge-to-edge: tables, semantic strips, full-bleed lists. */
+.vector-panel-body--flush {
+  padding: 0;
+  min-width: 0;
+}
+/* Full-width strip under header (intent band, etc.): edge-to-edge background,
+   horizontal text still aligned to the same pad-x as the header. */
+.vector-panel-strip {
+  margin: 0;
+  padding: var(--space-3) var(--vector-panel-pad-x);
+  border-bottom: 1px solid var(--va-border);
+  min-width: 0;
+}
+[data-density="compact"] .vector-panel {
+  --vector-panel-pad-y: var(--space-2);
+  --vector-panel-pad-y-header: var(--space-2);
+}
+[data-density="comfortable"] .vector-panel {
+  --vector-panel-pad-y: var(--space-4);
+  --vector-panel-pad-y-header: var(--space-4);
 }
 .vector-dashboard-grid {
   display: grid;
@@ -3915,13 +3960,19 @@
   align-content: start;
 }
 .situation-panel {
-  padding-bottom: 15px;
+  /* Body inset comes from .vector-panel-body; no ad-hoc px margins. */
+  min-width: 0;
 }
 .situation-panel .placeholder-contract {
-  margin-inline: 16px;
+  margin: 0;
 }
 .situation-panel .placeholder-actions {
-  padding-inline: 16px;
+  padding: 0;
+}
+.situation-panel .living-summary {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .oracle-summary-panel {
   margin-bottom: 12px;
@@ -3931,17 +3982,17 @@
 .oracle-summary-panel > header button {
   white-space: nowrap;
 }
+/* Inset handled by .vector-panel-body; keep only vertical rhythm inside body. */
 .oracle-empty,
 .oracle-summary-head,
 .oracle-feedback,
 .oracle-history,
-.oracle-summary-panel > .reporting-hint,
-.oracle-summary-panel > .oracle-warning {
-  margin: 14px 16px;
+.oracle-summary-panel .reporting-hint,
+.oracle-summary-panel .oracle-warning {
+  margin: 0;
 }
-.oracle-summary-panel > .reporting-hint {
-  margin-top: 0;
-  margin-bottom: 8px;
+.oracle-summary-panel .reporting-hint {
+  margin-bottom: var(--space-2);
 }
 .oracle-empty {
   display: grid;
@@ -5309,9 +5360,8 @@ html[data-font-scale="small"] .workspace-chip strong {
 [data-density="compact"] .attention-strip > div {
   padding-block: 10px;
 }
-[data-density="compact"] .vector-panel > header,
 [data-density="compact"] .dossiers-panel > header {
-  padding-block: 10px;
+  padding-block: var(--space-2);
 }
 [data-density="comfortable"] .dossier-table td {
   height: 66px;
@@ -5322,9 +5372,8 @@ html[data-font-scale="small"] .workspace-chip strong {
 [data-density="comfortable"] .attention-strip > div {
   padding-block: 19px;
 }
-[data-density="comfortable"] .vector-panel > header,
 [data-density="comfortable"] .dossiers-panel > header {
-  padding-block: 18px;
+  padding-block: var(--space-4);
 }
 /* Signal Avanza admin */
 .signal-admin { max-width: 1180px; display: grid; gap: 16px; }
@@ -8459,16 +8508,17 @@ html[data-font-scale="small"] .workspace-chip strong {
 
 /* —— Descubrimiento de actores (expediente de mercado) —— */
 .actor-discovery-panel {
-  margin-bottom: 16px;
-  padding-bottom: 4px;
+  margin-bottom: var(--space-4);
 }
 
 .actor-discovery-panel-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 16px;
+  gap: var(--space-4);
+  /* Matches .vector-panel > header inset tokens */
+  padding: var(--vector-panel-pad-y-header, var(--space-3))
+    var(--vector-panel-pad-x, var(--space-4));
   border-bottom: 1px solid var(--va-border);
 }
 
@@ -8478,7 +8528,7 @@ html[data-font-scale="small"] .workspace-chip strong {
 }
 
 .actor-discovery-panel-intro h2 {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-2);
   font-size: 15px;
 }
 
@@ -8493,7 +8543,7 @@ html[data-font-scale="small"] .workspace-chip strong {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   flex: 0 0 auto;
 }
 
@@ -8530,16 +8580,13 @@ html[data-font-scale="small"] .workspace-chip strong {
   background: #f8fafc;
 }
 
-/* Meta intención / tipo: dl en línea, sin artefacto vertical ni salto raro del tipo */
+/* Meta intención / tipo: franja full-bleed explícita (fondo al borde del panel). */
 .actor-discovery-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px 20px;
-  margin: 0;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--va-border);
-  background: var(--va-bg, #f8fafc);
+  gap: var(--space-2) var(--space-5);
+  background: var(--va-soft, #f8fafc);
 }
 
 .actor-discovery-meta-item {
@@ -8571,16 +8618,18 @@ html[data-font-scale="small"] .workspace-chip strong {
 }
 
 .actor-discovery-running {
-  padding: 14px 16px;
+  margin: 0;
+  min-width: 0;
 }
 
 .actor-discovery-failure {
-  margin: 12px 16px;
-  padding: 12px 14px;
+  margin: 0;
+  padding: var(--space-3);
   border: 1px solid #fecdca;
-  border-radius: 8px;
+  border-radius: var(--va-radius);
   background: #fef3f2;
   color: #7a271a;
+  min-width: 0;
 }
 
 .actor-discovery-failure-headline {
@@ -8616,14 +8665,15 @@ html[data-font-scale="small"] .workspace-chip strong {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px 16px;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
 .actor-discovery-list {
   list-style: none;
   margin: 0;
-  padding: 0 16px;
+  padding: 0;
+  min-width: 0;
 }
 
 .actor-discovery-item {

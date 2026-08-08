@@ -621,14 +621,22 @@ export function DossierProfilePanel({
               <h2>Perfil del expediente</h2>
             </div>
           </header>
-          <p className="reporting-hint">
-            Aún no hay oferta propia, competidores ni decisión capturados. Complétalos en
-            configuración.
-          </p>
-          <div className="placeholder-actions">
-            <Link className="vector-secondary" href={`/app/dossiers/${dossierId}/settings#dossier-profile`}>
-              Editar perfil
-            </Link>
+          <div
+            className="vector-panel-body vector-panel-body--stack"
+            data-testid="dossier-profile-body"
+          >
+            <p className="reporting-hint">
+              Aún no hay oferta propia, competidores ni decisión capturados. Complétalos en
+              configuración.
+            </p>
+            <div className="placeholder-actions">
+              <Link
+                className="vector-secondary"
+                href={`/app/dossiers/${dossierId}/settings#dossier-profile`}
+              >
+                Editar perfil
+              </Link>
+            </div>
           </div>
         </section>
       );
@@ -641,13 +649,24 @@ export function DossierProfilePanel({
             <h2>Perfil del expediente</h2>
           </div>
         </header>
-        <dl className="competitive-review" style={{ border: "none", background: "transparent", padding: 0 }}>
-          {readOnlyRows(draft)}
-        </dl>
-        <div className="placeholder-actions">
-          <Link className="vector-secondary" href={`/app/dossiers/${dossierId}/settings#dossier-profile`}>
-            Editar en configuración
-          </Link>
+        <div
+          className="vector-panel-body vector-panel-body--stack"
+          data-testid="dossier-profile-body"
+        >
+          <dl
+            className="competitive-review"
+            style={{ border: "none", background: "transparent", padding: 0 }}
+          >
+            {readOnlyRows(draft)}
+          </dl>
+          <div className="placeholder-actions">
+            <Link
+              className="vector-secondary"
+              href={`/app/dossiers/${dossierId}/settings#dossier-profile`}
+            >
+              Editar en configuración
+            </Link>
+          </div>
         </div>
       </section>
     );

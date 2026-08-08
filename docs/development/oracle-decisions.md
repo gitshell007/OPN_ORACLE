@@ -26,6 +26,18 @@ en `docs/architecture/`; este archivo reúne solo las que afectan directamente a
   `apps/api/tests/test_signal_connection_admin.py`, `src/components/admin/signal-admin.tsx`,
   cliente OpenAPI.
 
+## ORC-ADR-0014 — Anatomía opt-in de paneles Vector (ORA-UI-PANEL-INSETS)
+
+- Fecha: 2026-08-08
+- Estado: aceptada (UI en `oracle-dev`; no desplegada)
+- Contexto: la cabecera de `.vector-panel` tenía padding y el cuerpo no; empty
+  states y CTAs quedaban al borde.
+- Decisión: tokens `--vector-panel-pad-*` + clases opt-in body/stack/flush/strip;
+  full-bleed solo declarado (tablas, franjas semánticas, listas de filas).
+- No aplica a Horizon. Sin padding global ciego.
+- Archivos: `src/styles/concept-a.css`, paneles productivos migrados,
+  `docs/ui/vector-panel-anatomy.md`, `tests/e2e/vector-panel-insets.spec.ts`.
+
 ## ORC-ADR-0013 — CI en push a oracle-dev (ORA-CI-GATE)
 
 - Fecha: 2026-08-08

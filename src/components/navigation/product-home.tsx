@@ -125,6 +125,7 @@ export function ProductHome() {
 
       {isFirstRun ? (
         <section className="vector-panel home-onboarding" aria-labelledby="home-onboarding-title">
+          <div className="vector-panel-body vector-panel-body--stack">
           <span className="section-kicker">Primer paso</span>
           <h2 id="home-onboarding-title">Tu primer radar estratégico empieza aquí</h2>
           <p>Crea un expediente para reunir señales, actores, oportunidades y decisiones en un mismo contexto trazable.</p>
@@ -133,6 +134,7 @@ export function ProductHome() {
               <Plus size={16} /> Crear el primer expediente
             </HydratedActionButton>
           )}
+          </div>
         </section>
       ) : <>
       <section className="home-metrics" aria-label="Resumen operativo">
@@ -154,7 +156,7 @@ export function ProductHome() {
             <Link className="text-button" href="/app/dossiers">Ver cartera</Link>
           </header>
           {home?.attention.length ? (
-            <div className="home-dossier-list">
+            <div className="vector-panel-body--flush home-dossier-list" data-testid="home-attention-list">
               {home.attention.map((item) => (
                 <Link href={item.href} key={`${item.kind}:${item.id}`}>
                   {(() => {
@@ -174,7 +176,7 @@ export function ProductHome() {
               ))}
             </div>
           ) : (
-            <div className="empty-admin">
+            <div className="vector-panel-body empty-admin">
               <ArrowUpRight size={28} />
               <strong>No hay elementos prioritarios</strong>
               <p>{home?.dossier_total ? "Los expedientes accesibles no requieren atención inmediata." : "Crea el primer expediente para empezar a organizar señales y decisiones."}</p>
@@ -185,14 +187,17 @@ export function ProductHome() {
         <aside className="home-side">
           <section className="vector-panel">
             <header><div><span className="section-kicker">Salidas</span><h2>Informes recientes</h2></div></header>
+            <div className={reports.length ? "vector-panel-body--flush" : "vector-panel-body"}>
             {reports.length ? reports.map((report) => (
               <Link className="home-compact-row" href={`/app/reports/${report.id}`} key={report.id}>
                 <FileChartColumn size={16} /><span><strong>{report.title}</strong><small>{productStatusLabel(report.status)}</small></span>
               </Link>
             )) : <p className="reporting-hint">No hay informes accesibles todavía.</p>}
+            </div>
           </section>
           <section className="vector-panel home-jobs-panel">
             <header><div><span className="section-kicker">Auditoría</span><h2>Procesos y actividad</h2></div></header>
+            <div className="vector-panel-body vector-panel-body--stack">
             <p className="reporting-hint">
               Los trabajos en segundo plano viven ahora junto al registro de auditoría para revisar
               cuándo se ejecutaron, su estado y los fallos con contexto.
@@ -200,6 +205,7 @@ export function ProductHome() {
             <Link className="vector-secondary" href="/app/admin/audit?view=processes">
               Ver procesos
             </Link>
+            </div>
           </section>
         </aside>
       </div>

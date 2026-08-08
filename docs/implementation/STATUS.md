@@ -4,6 +4,17 @@ Actualizado: 2026-08-08
 Rama: `oracle-dev` (canal `oracle-dev`)
 
 
+## ORA-UI-PANEL-INSETS · cuerpo de paneles Vector (2026-08-08) · **en rama, no desplegado**
+
+- Contrato opt-in: `.vector-panel-body`, `--stack`, `--flush`, `.vector-panel-strip`
+  con tokens `--vector-panel-pad-x/y` alineados a la cabecera (`docs/ui/vector-panel-anatomy.md`).
+- Migrados: ActorDiscoveryPanel, DossierProfilePanel (lectura), situación del
+  expediente, Oráculo, home onboarding/side; listas full-bleed documentadas.
+- Playwright `tests/e2e/vector-panel-insets.spec.ts` (bounding boxes / padding).
+- Capturas: `docs/ui/panel-insets-captures/` (before sin inset + after 1440/1024/390).
+- **No desplegado.** Sin tocar Horizon, backend ni auth.
+
+
 ## ORA-CI-GATE · CI en push a `oracle-dev` (2026-08-08) · **workflow en rama; runs GHA pendientes**
 
 - `.github/workflows/ci.yml`:

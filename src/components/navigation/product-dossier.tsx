@@ -231,6 +231,7 @@ export function ProductDossier() {
             <h2>Situación del expediente</h2>
           </div>
         </header>
+        <div className="vector-panel-body vector-panel-body--stack">
         <p className="living-summary">
           {dossier.description ||
             "El expediente todavía no tiene una descripción consolidada."}
@@ -267,6 +268,7 @@ export function ProductDossier() {
           <Link className="vector-secondary" href={`/app/dossiers/${id}/opportunities`}>Oportunidades</Link>
           <Link className="vector-secondary" href={`/app/dossiers/${id}/risks`}>Riesgos</Link>
           <Link className="vector-secondary" href={`/app/dossiers/${id}/documents`}>Documentos</Link>
+        </div>
         </div>
       </section>
       <section className="dossier-summary-grid" aria-label="Prioridades del expediente">

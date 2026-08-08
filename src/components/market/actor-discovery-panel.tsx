@@ -392,7 +392,10 @@ export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
       </header>
 
       {discoveryIntent ? (
-        <dl className="actor-discovery-meta" data-testid="actor-discovery-intent">
+        <dl
+          className="vector-panel-strip actor-discovery-meta"
+          data-testid="actor-discovery-intent"
+        >
           <div className="actor-discovery-meta-item">
             <dt>Intención</dt>
             <dd>{discoveryIntent}</dd>
@@ -406,91 +409,100 @@ export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
         </dl>
       ) : null}
 
-      {error ? (
-        <p className="auth-inline-error" role="alert" data-testid="actor-discovery-error">
-          {error}
-        </p>
-      ) : null}
-
-      {loading ? (
-        <div className="work-loading" role="status" data-testid="actor-discovery-loading">
-          <span className="auth-spinner" /> Cargando descubrimiento…
-        </div>
-      ) : null}
-
-      {!loading && isIdle ? (
-        <div className="work-empty" data-testid="actor-discovery-idle">
-          <p>Aún no hay una ejecución de descubrimiento para este expediente.</p>
-          <p className="muted">
-            Pulse «Iniciar descubrimiento» para buscar con la intención y el tipo guardados.
+      <div
+        className="vector-panel-body vector-panel-body--stack"
+        data-testid="actor-discovery-body"
+      >
+        {error ? (
+          <p className="auth-inline-error" role="alert" data-testid="actor-discovery-error">
+            {error}
           </p>
-        </div>
-      ) : null}
+        ) : null}
 
-      {!loading && (running || jobStatus === "queued" || jobStatus === "running") ? (
-        <div role="status" data-testid="actor-discovery-running" className="actor-discovery-running">
-          <p>Descubrimiento en curso…</p>
-          <p className="muted">Estado: {productStatusLabel(jobStatus)}</p>
-        </div>
-      ) : null}
+        {loading ? (
+          <div className="work-loading" role="status" data-testid="actor-discovery-loading">
+            <span className="auth-spinner" /> Cargando descubrimiento…
+          </div>
+        ) : null}
 
-      {failure ? (
-        <div
-          className="actor-discovery-failure"
-          role="alert"
-          data-testid="actor-discovery-failed"
-          data-failure-kind={failure.kind}
-        >
-          <p className="actor-discovery-failure-headline">{failure.headline}</p>
-          <p className="actor-discovery-failure-message">{failure.message}</p>
-          {failure.actionHref && failure.actionLabel ? (
-            <p className="actor-discovery-failure-action">
-              <Link
-                href={failure.actionHref}
-                data-testid="actor-discovery-failure-action"
-              >
-                {failure.actionLabel}
-              </Link>
+        {!loading && isIdle ? (
+          <div className="work-empty" data-testid="actor-discovery-idle">
+            <p>Aún no hay una ejecución de descubrimiento para este expediente.</p>
+            <p className="muted">
+              Pulse «Iniciar descubrimiento» para buscar con la intención y el tipo guardados.
             </p>
-          ) : null}
-        </div>
-      ) : null}
+          </div>
+        ) : null}
 
-      {!loading && showList && artifact ? (
-        <div data-testid="actor-discovery-result">
-          {selectableCount === 0 && (output?.candidates?.length ?? 0) === 0 ? (
-            <div data-testid="actor-discovery-empty-result">
-              <p className="muted">
-                No hay actores publicables con cita cerrada en este resultado.
-              </p>
-            </div>
-          ) : null}
-          <ActorDiscoveryList
-            output={output}
-            selectedCandidateIds={selected}
-            onToggle={onToggle}
-          />
-          <div className="actor-discovery-accept-bar">
-            <AsyncActionButton
-              className="vector-primary"
-              type="button"
-              loading={busy}
-              disabled={selected.size === 0 || busy}
-              onClick={() => void acceptSelected()}
-              data-testid="actor-discovery-accept"
-              aria-label="Materializar fuentes de los actores seleccionados"
-              title="Materializar fuentes de los actores seleccionados"
-            >
-              Materializar fuentes seleccionadas
-            </AsyncActionButton>
-            {acceptResult ? (
-              <p className="muted" data-testid="actor-discovery-accept-result">
-                {acceptResult.count} evidencia(s) materializada(s). No se creó un Actor.
+        {!loading && (running || jobStatus === "queued" || jobStatus === "running") ? (
+          <div
+            role="status"
+            data-testid="actor-discovery-running"
+            className="actor-discovery-running"
+          >
+            <p>Descubrimiento en curso…</p>
+            <p className="muted">Estado: {productStatusLabel(jobStatus)}</p>
+          </div>
+        ) : null}
+
+        {failure ? (
+          <div
+            className="actor-discovery-failure"
+            role="alert"
+            data-testid="actor-discovery-failed"
+            data-failure-kind={failure.kind}
+          >
+            <p className="actor-discovery-failure-headline">{failure.headline}</p>
+            <p className="actor-discovery-failure-message">{failure.message}</p>
+            {failure.actionHref && failure.actionLabel ? (
+              <p className="actor-discovery-failure-action">
+                <Link
+                  href={failure.actionHref}
+                  data-testid="actor-discovery-failure-action"
+                >
+                  {failure.actionLabel}
+                </Link>
               </p>
             ) : null}
           </div>
-        </div>
-      ) : null}
+        ) : null}
+
+        {!loading && showList && artifact ? (
+          <div data-testid="actor-discovery-result">
+            {selectableCount === 0 && (output?.candidates?.length ?? 0) === 0 ? (
+              <div data-testid="actor-discovery-empty-result">
+                <p className="muted">
+                  No hay actores publicables con cita cerrada en este resultado.
+                </p>
+              </div>
+            ) : null}
+            <ActorDiscoveryList
+              output={output}
+              selectedCandidateIds={selected}
+              onToggle={onToggle}
+            />
+            <div className="actor-discovery-accept-bar">
+              <AsyncActionButton
+                className="vector-primary"
+                type="button"
+                loading={busy}
+                disabled={selected.size === 0 || busy}
+                onClick={() => void acceptSelected()}
+                data-testid="actor-discovery-accept"
+                aria-label="Materializar fuentes de los actores seleccionados"
+                title="Materializar fuentes de los actores seleccionados"
+              >
+                Materializar fuentes seleccionadas
+              </AsyncActionButton>
+              {acceptResult ? (
+                <p className="muted" data-testid="actor-discovery-accept-result">
+                  {acceptResult.count} evidencia(s) materializada(s). No se creó un Actor.
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }
