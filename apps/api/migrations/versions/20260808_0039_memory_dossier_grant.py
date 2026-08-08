@@ -4,9 +4,9 @@ Revision ID: 20260808_0039
 Revises: 20260808_0038
 Create Date: 2026-08-08 12:00:00+00:00
 
-Stores the last result of POST /memory/v1/scopes/ensure so Oracle can show
-honest «pendiente de autorización» without re-hitting Signal on every read,
-and without inventing an authorized state.
+Stores the last result of POST /memory/v1/dossiers/{id}/authorize
+(SIG-AUTOGRANT) so Oracle can show honest «pendiente de autorización»
+without re-hitting Signal on every read, and without inventing authorized.
 """
 
 from collections.abc import Sequence

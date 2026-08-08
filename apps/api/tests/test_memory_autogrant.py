@@ -218,22 +218,212 @@ def test_unit_grant_public_labels() -> None:
     assert "autorización" in (pub["message_es"] or "").lower()
 
 
+def test_client_authorize_hits_real_path_not_scopes_ensure() -> None:
+    """Mock must exercise the live path: .../dossiers/{id}/authorize, no body."""
+    from opn_oracle.integrations.memory_http_client import (
+        MemoryClientConfig,
+        SignalMemoryHttpClient,
+    )
+
+    dossier = "3746291e-9f11-46e3-88d5-db1fc7b68c4d"
+    transport = MockTransport(
+        responses={
+            "/authorize": (
+                200,
+                {"content-type": "application/json"},
+                json.dumps(
+                    {
+                        "dossier_id": dossier,
+                        "authorized": True,
+                        "reason": "already_active",
+                        "granted_by": "auto",
+                        "created": False,
+                        "reactivated": False,
+                    }
+                ).encode(),
+            ),
+            # If someone reverts to the stub path, this would incorrectly "succeed"
+            # with a shape that must NOT be treated as grant success alone — leave
+            # empty so a wrong path returns the default retrieve stub and fails.
+        }
+    )
+    client = SignalMemoryHttpClient(
+        MemoryClientConfig(
+            base_url="https://signal-dev.opnconsultoria.com",
+            api_token="unit-token",
+            require_https=False,
+        ),
+        transport,
+    )
+    status, data = client.authorize_dossier(
+        external_tenant_id="tenant-x",
+        dossier_id=dossier,
+    )
+    assert status == 200
+    assert data["authorized"] is True
+    assert data["reason"] == "already_active"
+    assert len(transport.calls) == 1
+    call = transport.calls[0]
+    assert call["url"].endswith(f"/api/v1/memory/v1/dossiers/{dossier}/authorize")
+    assert "/scopes/ensure" not in call["url"]
+    assert call["json_body"] is None
+    assert call["headers"].get("X-API-Key") == "***"
+
+
+@pytest.mark.integration
+def test_live_signal_dev_authorize_route_is_not_the_ensure_stub() -> None:
+    """Real HTTP to signal-dev: authorize path exists; we never call scopes/ensure.
+
+    Without a live API key we only prove routing/auth envelope shape (401),
+    which still exercises the production host and the correct URL. Full
+    authorized vs manual_required needs SIGNAL_MEMORY_LIVE_* (see smoke script).
+    """
+    if os.getenv("ORACLE_RUN_INTEGRATION") != "1":
+        pytest.skip("define ORACLE_RUN_INTEGRATION=1")
+    from opn_oracle.integrations.memory_http_client import (
+        HttpxTransport,
+        MemoryClientConfig,
+        SignalMemoryHttpClient,
+    )
+
+    dossier = "3746291e-9f11-46e3-88d5-db1fc7b68c4d"
+    # Deliberately invalid key — proves the live route without inventing grants.
+    client = SignalMemoryHttpClient(
+        MemoryClientConfig(
+            base_url="https://signal-dev.opnconsultoria.com",
+            api_token="oracle-live-smoke-invalid-key",
+            require_https=True,
+            max_retries=0,
+            deadline_seconds=15.0,
+        ),
+        HttpxTransport(),
+    )
+    with pytest.raises(MemoryHttpError) as exc:
+        client.authorize_dossier(
+            external_tenant_id="00000000-0000-4000-8000-000000000001",
+            dossier_id=dossier,
+        )
+    # Live Signal returns MemoryErrorEnvelope with error_code.
+    assert exc.value.http_status in {401, 403}
+    assert (
+        exc.value.code
+        in {
+            "missing_api_key",
+            "invalid_api_key",
+            "unauthorized",
+            "auth_or_scope",
+            "invalid_credentials",
+            "consumer_inactive",
+        }
+        or "auth" in exc.value.code
+        or "key" in exc.value.code
+    )
+
+    live_key = os.environ.get("SIGNAL_MEMORY_LIVE_API_KEY", "").strip()
+    live_tenant = os.environ.get("SIGNAL_MEMORY_LIVE_TENANT_ID", "").strip()
+    live_dossier = os.environ.get("SIGNAL_MEMORY_LIVE_DOSSIER_ID", "").strip()
+    if not (live_key and live_tenant and live_dossier):
+        return  # route existence already proven against signal-dev
+
+    live = SignalMemoryHttpClient(
+        MemoryClientConfig(
+            base_url=os.environ.get(
+                "SIGNAL_MEMORY_LIVE_BASE_URL", "https://signal-dev.opnconsultoria.com"
+            ),
+            api_token=live_key,
+            require_https=True,
+            max_retries=0,
+            deadline_seconds=20.0,
+        ),
+        HttpxTransport(),
+    )
+    try:
+        status, data = live.authorize_dossier(
+            external_tenant_id=live_tenant,
+            dossier_id=live_dossier,
+        )
+        assert status == 200
+        assert data.get("authorized") is True
+        assert data.get("granted_by") == "auto"
+        assert data.get("reason") in {"granted", "already_active", "reactivated"}
+    except MemoryHttpError as err:
+        from opn_oracle.integrations.memory_grant import (
+            CODE_MANUAL_REQUIRED,
+            _interpret_authorize_error,
+        )
+
+        mapped = _interpret_authorize_error(err)
+        assert mapped.code == CODE_MANUAL_REQUIRED or mapped.status in {
+            GRANT_MANUAL_REQUIRED,
+            "rejected",
+        }, f"unexpected live outcome: {err.code} -> {mapped}"
+
+
+def test_client_maps_dossier_authorization_manual_required() -> None:
+    from opn_oracle.integrations.memory_grant import (
+        CODE_MANUAL_REQUIRED,
+        GRANT_MANUAL_REQUIRED,
+        _interpret_authorize_error,
+    )
+    from opn_oracle.integrations.memory_http_client import (
+        MemoryClientConfig,
+        SignalMemoryHttpClient,
+    )
+
+    dossier = "11111111-1111-4111-8111-111111111111"
+    transport = MockTransport(
+        responses={
+            "/authorize": (
+                403,
+                {"content-type": "application/json"},
+                json.dumps(
+                    {
+                        "error_code": "dossier_authorization_manual_required",
+                        "http_status": 403,
+                        "retryable": False,
+                        "message": "la autorización de expedientes es manual para este consumidor",
+                        "detail": None,
+                    }
+                ).encode(),
+            )
+        }
+    )
+    client = SignalMemoryHttpClient(
+        MemoryClientConfig(
+            base_url="https://signal-dev.opnconsultoria.com",
+            api_token="unit-token",
+            require_https=False,
+        ),
+        transport,
+    )
+    with pytest.raises(MemoryHttpError) as exc:
+        client.authorize_dossier(external_tenant_id="t", dossier_id=dossier)
+    assert exc.value.code == "dossier_authorization_manual_required"
+    assert exc.value.job_error_code == CODE_MANUAL_REQUIRED
+    mapped = _interpret_authorize_error(exc.value)
+    assert mapped.status == GRANT_MANUAL_REQUIRED
+    assert mapped.code == CODE_MANUAL_REQUIRED
+
+
 def test_ensure_authorized_once_and_cache(
     grant_stack: tuple[Any, dict[str, uuid.UUID]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app, ids = grant_stack
+    # Real Signal contract: POST /dossiers/{id}/authorize (not scopes/ensure stub).
     transport = MockTransport(
         responses={
-            "/scopes/ensure": (
+            "/authorize": (
                 200,
                 {"content-type": "application/json"},
                 json.dumps(
                     {
-                        "scope": {"dossier_id": str(ids["dossier"])},
-                        "status": "active",
+                        "dossier_id": str(ids["dossier"]),
                         "authorized": True,
-                        "watermark": None,
+                        "reason": "granted",
+                        "granted_by": "auto",
+                        "created": True,
+                        "reactivated": False,
                     }
                 ).encode(),
             )
@@ -273,6 +463,10 @@ def test_ensure_authorized_once_and_cache(
         assert first.attempted is True
         assert first.cached is False
         assert len(transport.calls) == 1
+        assert transport.calls[0]["method"] == "POST"
+        assert f"/dossiers/{ids['dossier']}/authorize" in transport.calls[0]["url"]
+        assert "/scopes/ensure" not in transport.calls[0]["url"]
+        assert transport.calls[0]["json_body"] is None  # path-only body on live Signal
         # Second call must not re-POST
         second = ensure_dossier_memory_grant(
             db.session,
@@ -295,15 +489,19 @@ def test_ensure_manual_required_is_stable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app, ids = grant_stack
+    # Live Signal envelope when connector_policy.memory_autogrant_dossiers is off.
     transport = MockTransport(
         responses={
-            "/scopes/ensure": (
+            "/authorize": (
                 403,
-                {"content-type": "application/problem+json"},
+                {"content-type": "application/json"},
                 json.dumps(
                     {
-                        "error_code": "memory_grant_manual_required",
-                        "detail": "auto grant disabled",
+                        "error_code": "dossier_authorization_manual_required",
+                        "http_status": 403,
+                        "retryable": False,
+                        "message": "la autorización de expedientes es manual para este consumidor",
+                        "detail": None,
                     }
                 ).encode(),
             )
@@ -395,11 +593,18 @@ def test_cannot_ensure_foreign_tenant_dossier_under_rls(
     app, ids = grant_stack
     transport = MockTransport(
         responses={
-            "/scopes/ensure": (
+            "/authorize": (
                 200,
                 {"content-type": "application/json"},
                 json.dumps(
-                    {"status": "active", "authorized": True, "watermark": None, "scope": {}}
+                    {
+                        "dossier_id": str(ids["dossier"]),
+                        "authorized": True,
+                        "reason": "already_active",
+                        "granted_by": "auto",
+                        "created": False,
+                        "reactivated": False,
+                    }
                 ).encode(),
             )
         }

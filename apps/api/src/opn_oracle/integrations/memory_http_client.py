@@ -434,40 +434,77 @@ class SignalMemoryHttpClient:
             raise MemoryHttpError("invalid_json", "health not object", retryable=False)
         return data
 
-    def ensure_scope(
+    # Signal error_codes from POST /dossiers/{id}/authorize (SIG-AUTOGRANT, live).
+    # Manual path is terminal: never retry aggressively.
+    _AUTHORIZE_MANUAL_CODES = frozenset(
+        {
+            "dossier_authorization_manual_required",
+            "memory_grant_manual_required",
+        }
+    )
+    _AUTHORIZE_REJECTED_CODES = frozenset(
+        {
+            "tenant_not_allowed",
+            "insufficient_scope",
+            "credential_tenant_mismatch",
+        }
+    )
+
+    def authorize_dossier(
         self,
         *,
         external_tenant_id: str,
         dossier_id: str,
-        idempotency_key: str,
         correlation_id: str | None = None,
     ) -> tuple[int, dict[str, Any]]:
-        """Request dossier authorization (consumer_memory_dossier_grants) once.
+        """Request consumer_memory_dossier_grants via the real Signal path.
 
-        Contract (SIG-AUTOGRANT / memory.v1 scopes/ensure):
-        - 200 + authorized true → usable
-        - 200 + pending / authorized false → manual authorization required
-        - 4xx with error_code memory_grant_manual_required → raises MemoryHttpError
-        - other 4xx → raises MemoryHttpError (rejected / not authorized)
+        Live contract (signal-dev, SIG-AUTOGRANT — NOT scopes/ensure stub):
 
-        4xx are terminal (no retry loop): manual authorization is stable.
-        5xx/transport get a short bounded retry. Credentials stay in headers only.
+            POST /api/v1/memory/v1/dossiers/{dossier_id}/authorize
+            Headers: X-API-Key, X-OPN-External-Tenant-ID, Accept
+            Body: none (dossier_id is path-only)
+
+        Success 200::
+            {
+              "dossier_id": "<uuid>",
+              "authorized": true,
+              "reason": "granted" | "already_active" | "reactivated",
+              "granted_by": "auto",
+              "created": bool,
+              "reactivated": bool
+            }
+
+        403 MemoryErrorEnvelope::
+            {
+              "error_code": "dossier_authorization_manual_required" | "tenant_not_allowed",
+              "http_status": 403,
+              "retryable": false,
+              "message": "...",
+              "detail": null
+            }
+
+        ``/scopes/ensure`` is a non-persisting stub that *requires* an existing
+        grant — do not call it for autogrant.
         """
         if not str(external_tenant_id or "").strip():
             raise MemoryHttpError("tenant_required", "external tenant required", retryable=False)
-        path = "/api/v1/memory/v1/scopes/ensure"
-        corr = correlation_id or f"ora_grant_{uuid.uuid4().hex[:16]}"
+        try:
+            dossier = str(__import__("uuid").UUID(str(dossier_id)))
+        except (TypeError, ValueError) as exc:
+            raise MemoryHttpError(
+                "schema_validation", "dossier_id must be a UUID", retryable=False
+            ) from exc
+        path = f"/api/v1/memory/v1/dossiers/{dossier}/authorize"
+        corr = correlation_id or f"ora_authz_{uuid.uuid4().hex[:16]}"
         headers = {
-            "Content-Type": "application/json",
             "Accept": "application/json",
             "X-API-Key": self.config.api_token,
             "X-OPN-External-Tenant-ID": str(external_tenant_id).strip(),
-            "X-OPN-Dossier-ID": str(dossier_id),
+            "X-OPN-Dossier-ID": dossier,
             "X-Request-ID": corr,
             "X-Correlation-ID": corr,
-            "Idempotency-Key": str(idempotency_key)[:200],
         }
-        body: dict[str, Any] = {"dossier_id": str(dossier_id), "product_code": "oracle"}
         deadline = time.monotonic() + float(self.config.deadline_seconds)
         attempt = 0
         last_err: MemoryHttpError | None = None
@@ -475,8 +512,9 @@ class SignalMemoryHttpClient:
             if time.monotonic() > deadline:
                 raise MemoryHttpError("deadline_exceeded", "deadline exceeded", retryable=False)
             try:
+                # No body: path carries dossier_id (Signal live contract).
                 status, _hdrs, raw = self._request_once(
-                    "POST", path, headers=headers, json_body=body
+                    "POST", path, headers=headers, json_body=None
                 )
             except MemoryHttpError as exc:
                 last_err = exc
@@ -502,42 +540,25 @@ class SignalMemoryHttpClient:
                 data = parsed if isinstance(parsed, dict) else {"value": parsed}
             if status < 400:
                 return status, data
-            # Prefer Signal error_code from body (machine-stable).
             body_code = str(data.get("error_code") or data.get("code") or "").strip()
             code, retryable = classify_http_error(status)
             if body_code:
                 code = body_code
-            # Manual grant outcomes are never retryable.
-            if code in {
-                "memory_grant_manual_required",
-                "grant_manual_required",
-                "manual_authorization_required",
-                "consumer_grant_manual_required",
-                "authorization_manual_required",
-                "dossier_not_authorized",
-            }:
+            if code in self._AUTHORIZE_MANUAL_CODES or code in self._AUTHORIZE_REJECTED_CODES:
                 retryable = False
+            job_code: str | None = None
+            if code in self._AUTHORIZE_MANUAL_CODES:
+                job_code = "memory_grant_manual_required"
+            elif code == "tenant_not_allowed":
+                job_code = "memory_grant_rejected"
+            elif code == "dossier_not_authorized":
+                job_code = "memory_dossier_not_authorized"
             err = MemoryHttpError(
                 code,
-                f"memory ensure_scope status={status}",
+                str(data.get("message") or f"memory authorize status={status}"),
                 http_status=status,
                 retryable=retryable,
-                job_error_code=(
-                    "memory_grant_manual_required"
-                    if code
-                    in {
-                        "memory_grant_manual_required",
-                        "grant_manual_required",
-                        "manual_authorization_required",
-                        "consumer_grant_manual_required",
-                        "authorization_manual_required",
-                    }
-                    else (
-                        "memory_dossier_not_authorized"
-                        if code == "dossier_not_authorized"
-                        else None
-                    )
-                ),
+                job_error_code=job_code,
             )
             if not retryable or attempt >= self.config.max_retries:
                 raise err
@@ -546,7 +567,29 @@ class SignalMemoryHttpClient:
             attempt += 1
         if last_err:
             raise last_err
-        raise MemoryHttpError("upstream_error", "ensure_scope retry exhausted", retryable=False)
+        raise MemoryHttpError(
+            "upstream_error", "authorize_dossier retry exhausted", retryable=False
+        )
+
+    def ensure_scope(
+        self,
+        *,
+        external_tenant_id: str,
+        dossier_id: str,
+        idempotency_key: str | None = None,
+        correlation_id: str | None = None,
+    ) -> tuple[int, dict[str, Any]]:
+        """Deprecated alias: scopes/ensure is a non-persisting stub on Signal.
+
+        Kept only so call sites that still say ensure_scope hit authorize_dossier.
+        ``idempotency_key`` is ignored (authorize is path-idempotent server-side).
+        """
+        del idempotency_key
+        return self.authorize_dossier(
+            external_tenant_id=external_tenant_id,
+            dossier_id=dossier_id,
+            correlation_id=correlation_id,
+        )
 
     def post_json(
         self,

@@ -273,7 +273,7 @@ class DossierMemoryProfile(TenantDomainMixin, Base):
     last_test_status: Mapped[str | None] = mapped_column(String(40))
     last_error: Mapped[str | None] = mapped_column(String(500))
     last_coverage: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    # ORA-AUTOGRANT: last scopes/ensure result (fail-closed; never invent authorized).
+    # ORA-AUTOGRANT: last /dossiers/{id}/authorize result (fail-closed).
     signal_grant_status: Mapped[str | None] = mapped_column(String(40))
     signal_grant_code: Mapped[str | None] = mapped_column(String(80))
     signal_grant_detail: Mapped[str | None] = mapped_column(String(500))

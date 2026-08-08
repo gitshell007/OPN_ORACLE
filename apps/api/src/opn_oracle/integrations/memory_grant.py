@@ -58,9 +58,14 @@ CODE_UNKNOWN = "memory_grant_unknown"
 # Terminal outcomes: do not re-call Signal for the same connection.
 _STABLE_STATUSES = frozenset({GRANT_AUTHORIZED, GRANT_MANUAL_REQUIRED, GRANT_REJECTED})
 
+# Signal live error_code from POST /dossiers/{id}/authorize when autogrant is off.
+SIGNAL_MANUAL_REQUIRED = "dossier_authorization_manual_required"
+SIGNAL_TENANT_NOT_ALLOWED = "tenant_not_allowed"
+
 _MANUAL_SIGNAL_CODES = frozenset(
     {
         CODE_MANUAL_REQUIRED,
+        SIGNAL_MANUAL_REQUIRED,
         "grant_manual_required",
         "manual_authorization_required",
         "consumer_grant_manual_required",
@@ -175,57 +180,60 @@ def _resolve_transport() -> tuple[Transport, bool]:
     return HttpxTransport(), False
 
 
-def _interpret_ensure_success(data: dict[str, Any]) -> GrantEnsureResult:
-    authorized = data.get("authorized") is True
-    status_raw = str(data.get("status") or "").strip().lower()
-    if authorized or status_raw == "active":
+def _interpret_authorize_success(data: dict[str, Any]) -> GrantEnsureResult:
+    """Map live authorize 200 body → durable grant status.
+
+    Real Signal success body (not ScopeStatus): authorized + reason + granted_by.
+    """
+    if data.get("authorized") is True:
+        reason = str(data.get("reason") or "granted")
+        detail = f"Signal autorizó el expediente ({reason})."
         return GrantEnsureResult(
             status=GRANT_AUTHORIZED,
             code=None,
-            detail="Signal autorizó el expediente para memoria.",
+            detail=detail,
             attempted=True,
             cached=False,
         )
-    # pending / authorized false / anything else: fail-closed as manual or unknown
-    if status_raw in {"pending", "manual", "manual_required"} or data.get("authorized") is False:
-        return GrantEnsureResult(
-            status=GRANT_MANUAL_REQUIRED,
-            code=CODE_MANUAL_REQUIRED,
-            detail="Signal requiere autorización manual del expediente.",
-            attempted=True,
-            cached=False,
-        )
+    # Fail-closed: a 200 without authorized:true is not usable.
     return GrantEnsureResult(
         status=GRANT_UNKNOWN,
         code=CODE_UNKNOWN,
-        detail="Respuesta de autorización no clasificada.",
+        detail="Respuesta de autorización sin authorized=true.",
         attempted=True,
         cached=False,
     )
 
 
-def _interpret_ensure_error(exc: MemoryHttpError) -> GrantEnsureResult:
+def _interpret_authorize_error(exc: MemoryHttpError) -> GrantEnsureResult:
+    """Map live authorize 4xx envelope.error_code → durable codes."""
     code = str(exc.code or "")
-    if code in _MANUAL_SIGNAL_CODES or CODE_MANUAL_REQUIRED in code:
+    # Primary: Signal's machine code when autogrant flag is off.
+    if code in _MANUAL_SIGNAL_CODES or code == SIGNAL_MANUAL_REQUIRED:
         return GrantEnsureResult(
             status=GRANT_MANUAL_REQUIRED,
             code=CODE_MANUAL_REQUIRED,
-            detail=exc.message or "Autorización manual requerida en Signal.",
+            detail=exc.message or "La autorización de expedientes es manual para este consumidor.",
             attempted=True,
             cached=False,
         )
-    if code in {"auth_or_scope", "insufficient_scope", "credential_tenant_mismatch"}:
+    if code in {
+        SIGNAL_TENANT_NOT_ALLOWED,
+        "auth_or_scope",
+        "insufficient_scope",
+        "credential_tenant_mismatch",
+    }:
         return GrantEnsureResult(
             status=GRANT_REJECTED,
             code=CODE_REJECTED,
-            detail=exc.message or "Signal rechazó la autorización.",
+            detail=exc.message or "Signal rechazó la autorización (cliente no permitido).",
             attempted=True,
             cached=False,
         )
     if code == "dossier_not_authorized":
-        # ensure should not normally return this; treat as not authorized yet.
+        # Generic runtime denial — not the same as manual-required.
         return GrantEnsureResult(
-            status=GRANT_MANUAL_REQUIRED,
+            status=GRANT_REJECTED,
             code=CODE_NOT_AUTHORIZED,
             detail=exc.message or "Expediente no autorizado en Signal.",
             attempted=True,
@@ -325,16 +333,15 @@ def ensure_dossier_memory_grant(
             require_https=not synthetic,
         )
         external = str(getattr(g, "external_tenant_id", None) or tenant_id)
-        idem = f"memory-scope-ensure:{tenant_id}:{dossier_id}:{connection.id}"
-        status, data = client.ensure_scope(
+        # Real path: POST /memory/v1/dossiers/{id}/authorize (not scopes/ensure stub).
+        status, data = client.authorize_dossier(
             external_tenant_id=external,
             dossier_id=str(dossier_id),
-            idempotency_key=idem,
         )
         del status  # interpretation uses body
-        result = _interpret_ensure_success(data if isinstance(data, dict) else {})
+        result = _interpret_authorize_success(data if isinstance(data, dict) else {})
     except MemoryHttpError as exc:
-        result = _interpret_ensure_error(exc)
+        result = _interpret_authorize_error(exc)
     except Exception as exc:
         logger.warning(
             "memory_grant_ensure_failed tenant_id=%s dossier_id=%s err_type=%s",
