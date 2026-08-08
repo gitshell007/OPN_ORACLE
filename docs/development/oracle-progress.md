@@ -5,6 +5,22 @@ Este historial es complementario al `history` de cada funcionalidad en
 con el comando real o con el archivo que las contiene.
 
 
+## 2026-08-08 — ORA-XENV-ACTIVATE · ORC-SIG-001 (seguridad activate)
+
+- Objetivo: `POST …/activate` reutiliza el guardián cross-environment; identidad por
+  hostname (+ puerto no estándar), no por path.
+- Pruebas API: `ORACLE_RUN_INTEGRATION=1` +
+  `TEST_DATABASE_URL`/`TEST_RUNTIME_DATABASE_URL` → `oracle_test` (127.0.0.1) +
+  `TEST_REDIS_URL=redis://127.0.0.1:6379/14` ·
+  `uv run pytest -q tests/test_signal_connection_admin.py --no-cov` → **11 passed**.
+- Mutación: sin enforce en activate → fallan owner 403, super 422 y host distinto;
+  compare path-sensitive → fallan same-host y helper unit.
+- UI: `npm run test -- --run src/components/admin/signal-admin.test.tsx` → **11 passed**.
+- Alcance de mutaciones revisado: gate en create/update/activate; no en
+  rotate/disable/test/reconcile (documentado en el commit).
+- **No desplegado.** Producción y conexiones remotas no tocadas.
+
+
 ## 2026-08-07 — Snapshot consolidado fec3c3e · ORC-MEM-001 / ORC-QA-001
 
 - Alcance: reconciliación documental del `HEAD` consolidado y de las entregas verificadas en los

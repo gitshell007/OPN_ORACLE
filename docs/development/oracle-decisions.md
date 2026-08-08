@@ -4,6 +4,28 @@ Este registro contiene las decisiones que gobiernan el sistema vivo de planifica
 decisiones de producto y arquitectura históricas siguen en `docs/implementation/DECISIONS.md` y
 en `docs/architecture/`; este archivo reúne solo las que afectan directamente a este mecanismo.
 
+## ORC-ADR-0011 — Identidad Signal cross-environment por hostname (ORA-XENV-ACTIVATE)
+
+- Fecha: 2026-08-08
+- Estado: aceptada (código en `oracle-dev`; sin release afirmado)
+- Contexto: `activate` omitía el guardián de entorno cruzado. Además, comparar la URL completa
+  hacía que `SIGNAL_AVANZA_BASE_URL=…/api/v1/oracle` y una conexión en la raíz del mismo host
+  se trataran como entornos distintos.
+- Decisión:
+  1. `create`, `update` y **`activate`** llaman a `_enforce_cross_environment_authorization`
+     con la `base_url` efectiva y `confirm_cross_environment` del body.
+  2. La identidad de entorno es hostname (+ puerto no estándar); la ruta se ignora.
+  3. `rotate`, `disable`, `test` y `reconcile` no reaplican el guardián: no cambian el destino
+     ni habilitan un destino nuevo; el destino solo se establece/habilita en create/update/activate.
+- Motivo: cerrar el bypass de activación sin exigir reconfirmación en cada health/reconcile.
+- Consecuencias: owner sin `platform_role` recibe 403 al activar cross-env; super_admin sin
+  confirmación recibe 422; super_admin confirmado deja auditoría con
+  `cross_environment_confirmed` y `authorized_by`.
+- Funcionalidades afectadas: ORC-SIG-001.
+- Archivos afectados: `apps/api/src/opn_oracle/integrations/routes.py`,
+  `apps/api/tests/test_signal_connection_admin.py`, `src/components/admin/signal-admin.tsx`,
+  cliente OpenAPI.
+
 ## ORC-ADR-0001 — El roadmap JSON es la fuente estructurada de verdad
 
 - Fecha: 2026-07-31

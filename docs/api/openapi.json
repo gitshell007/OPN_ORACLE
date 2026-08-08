@@ -11478,6 +11478,16 @@
         ],
         "type": "object"
       },
+      "SignalConnectionActivateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm_cross_environment": {
+            "description": "Obligatorio true cuando base_url de la conexi\u00f3n es un destino Signal distinto del configurado en el despliegue (solo super_admin de plataforma).",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "SignalConnectionListResponse": {
         "properties": {
           "items": {
@@ -39754,7 +39764,7 @@
     },
     "/api/v1/integrations/signal-avanza/{connection_id}/activate": {
       "post": {
-        "description": "Also reactivates a disabled/pending/error connection. Previous actives are\ndisabled in the same transaction.",
+        "description": "Also reactivates a disabled/pending/error connection. Previous actives are\ndisabled in the same transaction.\n\nCross-environment destinations reuse\n``_enforce_cross_environment_authorization`` on the connection's stored\n``base_url`` and optional body ``confirm_cross_environment`` (ORA-XENV-ACTIVATE).",
         "parameters": [
           {
             "in": "path",
@@ -39774,6 +39784,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignalConnectionActivateInput"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {

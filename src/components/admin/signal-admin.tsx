@@ -126,6 +126,11 @@ export function SignalAdmin() {
     api_version: string;
     confirm_cross_environment: boolean;
   } | null>(null);
+  /** Super_admin must reconfirm when activating a stored cross-environment URL. */
+  const [activateConfirm, setActivateConfirm] = useState<{
+    connectionId: string;
+    confirmed: boolean;
+  } | null>(null);
   const [monitorDraft, setMonitorDraft] = useState({
     connection_id: "",
     name: "Monitor Signal",
@@ -223,16 +228,36 @@ export function SignalAdmin() {
     }
   }
 
-  async function activateConnection(connection: SignalConnection) {
+  async function activateConnection(
+    connection: SignalConnection,
+    options?: { confirmCrossEnvironment?: boolean },
+  ) {
     setBusy(`activate-${connection.id}`);
     setError(null);
+    const confirmCross =
+      options?.confirmCrossEnvironment === true ||
+      (activateConfirm?.connectionId === connection.id &&
+        activateConfirm.confirmed);
     try {
-      await recent.run(() => api.signalAvanza.activate(connection.id));
+      await recent.run(() =>
+        api.signalAvanza.activate(connection.id, {
+          confirm_cross_environment: confirmCross || undefined,
+        }),
+      );
+      setActivateConfirm(null);
       await loadConnections();
       toast.success("Conexión activada", {
         description: "Es la única conexión Signal activa de la organización.",
       });
     } catch (reason) {
+      if (
+        reason instanceof ApiError &&
+        (reason.problem?.code === "signal_cross_environment_confirmation_required" ||
+          reason.problem?.code === "cross_environment_confirmation_required")
+      ) {
+        // Super_admin: show explicit confirm UI (422). Owner gets 403 instead.
+        setActivateConfirm({ connectionId: connection.id, confirmed: false });
+      }
       setError(signalActionError(reason, "No se pudo activar la conexión."));
     } finally {
       setBusy(null);
@@ -590,6 +615,63 @@ export function SignalAdmin() {
                       >
                         <Play size={15} /> Activar
                       </AsyncActionButton>
+                    )}
+                    {activateConfirm?.connectionId === connection.id && (
+                      <div
+                        className="rotation-form"
+                        data-testid={`activate-cross-env-${connection.id}`}
+                      >
+                        {isPlatformSuperAdmin ? (
+                          <>
+                            <p>
+                              Esta conexión apunta a un destino Signal distinto del
+                              configurado en este despliegue. Confirma de forma
+                              explícita antes de activarla.
+                            </p>
+                            <label className="checkbox-row">
+                              <input
+                                type="checkbox"
+                                checked={activateConfirm.confirmed}
+                                onChange={(event) =>
+                                  setActivateConfirm({
+                                    connectionId: connection.id,
+                                    confirmed: event.target.checked,
+                                  })
+                                }
+                              />
+                              <span>
+                                Confirmo el uso intencional de esta URL de Signal
+                                (requiere superadministración de plataforma)
+                              </span>
+                            </label>
+                            <AsyncActionButton
+                              className="vector-primary"
+                              loading={busy === `activate-${connection.id}`}
+                              disabled={!activateConfirm.confirmed}
+                              onClick={() =>
+                                void activateConnection(connection, {
+                                  confirmCrossEnvironment: true,
+                                })
+                              }
+                            >
+                              Confirmar y activar
+                            </AsyncActionButton>
+                          </>
+                        ) : (
+                          <p data-testid="activate-cross-env-platform-note">
+                            Activar un destino Signal distinto del configurado en
+                            este despliegue requiere superadministración de
+                            plataforma.
+                          </p>
+                        )}
+                        <button
+                          type="button"
+                          className="vector-secondary"
+                          onClick={() => setActivateConfirm(null)}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
                     )}
                     {connection.status === "active" && (
                       <AsyncActionButton

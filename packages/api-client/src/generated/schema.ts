@@ -20474,6 +20474,10 @@ export interface paths {
          * Make this connection the sole active Signal connection for the tenant.
          * @description Also reactivates a disabled/pending/error connection. Previous actives are
          *     disabled in the same transaction.
+         *
+         *     Cross-environment destinations reuse
+         *     ``_enforce_cross_environment_authorization`` on the connection's stored
+         *     ``base_url`` and optional body ``confirm_cross_environment`` (ORA-XENV-ACTIVATE).
          */
         post: {
             parameters: {
@@ -20486,7 +20490,11 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["SignalConnectionActivateInput"];
+                };
+            };
             responses: {
                 /** @description Operación completada */
                 200: {
@@ -37784,6 +37792,10 @@ export interface components {
             /** Format: uuid */
             id: string;
             platform_role: string | null;
+        };
+        SignalConnectionActivateInput: {
+            /** @description Obligatorio true cuando base_url de la conexión es un destino Signal distinto del configurado en el despliegue (solo super_admin de plataforma). */
+            confirm_cross_environment?: boolean;
         };
         SignalConnectionListResponse: {
             items: components["schemas"]["SignalConnectionResponse"][];

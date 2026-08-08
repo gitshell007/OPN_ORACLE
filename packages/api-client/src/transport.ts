@@ -703,10 +703,16 @@ const signalAvanza = {
       `/api/v1/integrations/signal-avanza/${encodeURIComponent(connectionId)}/disable`,
       { method: "POST" },
     ),
-  activate: (connectionId: string) =>
+  activate: (
+    connectionId: string,
+    input?: { confirm_cross_environment?: boolean },
+  ) =>
     request<SignalConnection>(
       `/api/v1/integrations/signal-avanza/${encodeURIComponent(connectionId)}/activate`,
-      { method: "POST" },
+      {
+        method: "POST",
+        body: input ?? {},
+      },
     ),
   update: (
     connectionId: string,

@@ -1,7 +1,32 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-08-07
-Rama: `codex/consolidacion-oracle-20260806` @ `fec3c3e` (canal `oracle-dev`)
+Actualizado: 2026-08-08
+Rama: `oracle-dev` (canal `oracle-dev`)
+
+
+## ORA-XENV-ACTIVATE · guardián en `activate` (2026-08-08) · **código en rama, no desplegado**
+
+- Alcance: cierre del agujero P0 del traspaso 2026-08-08 — `activate_connection` no
+  llamaba a `_enforce_cross_environment_authorization`.
+- Comportamiento medido en tests HTTP de integración (BD/Redis desechables
+  `oracle_test` / Redis DB 14; **no** Oracle Dev):
+  - owner + destino cross-environment → **403** `signal_cross_environment_platform_required`;
+  - super_admin sin `confirm_cross_environment` → **422**
+    `signal_cross_environment_confirmation_required`;
+  - super_admin confirmado → **200** y `AuditEvent` con
+    `cross_environment_confirmed` + `authorized_by`;
+  - mismo host con distinta ruta (`…/api/v1/oracle` vs raíz) → no pide confirmación;
+  - host distinto → bloqueo mantenido.
+- Identidad de entorno: hostname + puerto no estándar (no la ruta).
+- UI: activación reutiliza mensajes 403/422; super_admin ve casilla de confirmación
+  tras 422 y reintenta con `confirm_cross_environment=true`.
+- Mutación controlada: al saltar el enforce en activate fallan
+  `test_owner_cannot_activate_*`, `test_super_admin_activate_*` y
+  `test_activate_different_host_*`; al restaurar comparación por path fallan
+  same-host y helper unit. Restaurado y 11/11 verdes.
+- **No se activó ni modificó ninguna conexión remota de producción.** **No hay
+  release nativo ni afirmación EN PRODUCCIÓN** para este cambio.
+- Prompt residual del traspaso: `ORA-CI-GATE` sigue pendiente (no ejecutado aquí).
 
 
 ## Consolidación SV2 y Oracle Dev · snapshot verificable (2026-08-07)

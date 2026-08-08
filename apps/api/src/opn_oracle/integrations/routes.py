@@ -105,6 +105,26 @@ def _deactivate_other_active_connections(tenant_id: uuid.UUID, *, keep_id: uuid.
     return deactivated
 
 
+def _signal_environment_identity(url: str) -> str | None:
+    """Environment key: hostname + non-default port. Paths are ignored.
+
+    ``https://signal-dev.example/api/v1/oracle`` and
+    ``https://signal-dev.example`` are the same environment. A non-standard
+    port (e.g. ``:8443``) is part of the identity; default 443/80 are not.
+    """
+    parsed = urlparse(str(url).strip())
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return None
+    port = parsed.port
+    scheme = (parsed.scheme or "").lower()
+    if port is not None:
+        default_port = 443 if scheme == "https" else 80 if scheme == "http" else None
+        if default_port is None or port != default_port:
+            return f"{host}:{port}"
+    return host
+
+
 def _requires_cross_environment_confirmation(base_url: str | None) -> bool:
     """True when the target is not the Signal this deploy was configured for.
 
@@ -112,19 +132,26 @@ def _requires_cross_environment_confirmation(base_url: str | None) -> bool:
     ``APP_ENV=production`` (see docs/operations/DEV_NATIVE_DEPLOY.md), so an
     environment-based guard is inert on the very host it was meant to protect.
     The reliable signal is ``SIGNAL_AVANZA_BASE_URL`` — the Signal this deploy
-    was pointed at. Anything else is a cross-environment move.
+    was pointed at. Comparison uses hostname (+ non-default port), not path:
+    configured ``…/api/v1/oracle`` and a connection root on the same host are
+    the same environment.
     """
     if not base_url or not str(base_url).strip():
         return False
-    candidate = str(base_url).strip().rstrip("/")
+    candidate = str(base_url).strip()
     host = (urlparse(candidate).hostname or "").lower()
     if not host or host in {"localhost", "127.0.0.1"} or host.endswith(".local"):
         return False
-    expected = str(current_app.config.get("SIGNAL_AVANZA_BASE_URL") or "").strip().rstrip("/")
+    expected = str(current_app.config.get("SIGNAL_AVANZA_BASE_URL") or "").strip()
     if expected:
-        return candidate != expected
+        candidate_key = _signal_environment_identity(candidate)
+        expected_key = _signal_environment_identity(expected)
+        # Fail closed if either side cannot be identified as a host.
+        if candidate_key is None or expected_key is None:
+            return True
+        return candidate_key != expected_key
     # No expected URL configured: any remote https target needs confirmation.
-    return candidate.startswith("https://")
+    return candidate.lower().startswith("https://")
 
 
 def _is_platform_super_admin() -> bool:
@@ -375,29 +402,53 @@ def activate_connection(connection_id: uuid.UUID) -> Any:
 
     Also reactivates a disabled/pending/error connection. Previous actives are
     disabled in the same transaction.
+
+    Cross-environment destinations reuse
+    ``_enforce_cross_environment_authorization`` on the connection's stored
+    ``base_url`` and optional body ``confirm_cross_environment`` (ORA-XENV-ACTIVATE).
     """
     connection = _get_tenant_connection(connection_id)
     if connection is None:
         return problem_response(
             404, detail="Integración no encontrada.", code="integration_not_found"
         )
+    payload = request.get_json(silent=True)
+    if payload is None:
+        payload = {}
+    elif not isinstance(payload, dict):
+        return problem_response(
+            422, detail="El cuerpo debe ser un objeto JSON.", code="validation_failed"
+        )
+    cross_env = _requires_cross_environment_confirmation(connection.base_url)
+    denied = _enforce_cross_environment_authorization(
+        connection.base_url,
+        confirmed=bool(payload.get("confirm_cross_environment")),
+    )
+    if denied is not None:
+        return denied
     previous_status = connection.status
     deactivated = _deactivate_other_active_connections(g.active_tenant_id, keep_id=connection.id)
     connection.status = "active"
     if previous_status != "active":
         connection.version += 1
+    audit_meta: dict[str, Any] = {
+        "previous_status": previous_status,
+        "new_status": "active",
+        "deactivated_connection_ids": deactivated,
+        "deactivated_count": len(deactivated),
+        "base_url": connection.base_url,
+        "cross_environment_confirmed": cross_env,
+        "actor_platform_role": getattr(current_user, "platform_role", None),
+    }
+    if cross_env:
+        audit_meta["authorized_by"] = _cross_env_audit_actor()
     append_audit_event(
         db.session,
         action="integration.signal.activate",
         resource_type="integration_connection",
         resource_id=connection.id,
         result="success",
-        metadata={
-            "previous_status": previous_status,
-            "new_status": "active",
-            "deactivated_connection_ids": deactivated,
-            "deactivated_count": len(deactivated),
-        },
+        metadata=audit_meta,
     )
     db.session.commit()
     return jsonify(_connection_payload(connection))

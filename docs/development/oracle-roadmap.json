@@ -595,9 +595,15 @@
       "multi_tenant_requirements": ["External tenant mapping derivado de membership/integration."],
       "audit_requirements": ["Registrar entregas, fallos, event ID y provider ID."],
       "impact": {"frontend": "Solo cliente Flask/OpenAPI.", "backend": "Integrations adapter y service.", "database": "Connection, credential, outbox/inbox y Signal.", "celery": "Sync/reconcile.", "redis": "Locks y broker.", "signal": "Directo por adapter.", "reports": "Señales alimentan contexto.", "permissions": "Integration admin."},
-      "related_files": ["apps/api/src/opn_oracle/integrations/signal_avanza.py", "apps/api/src/opn_oracle/integrations/service.py", "apps/api/src/opn_oracle/integrations/webhooks.py", "docs/architecture/0006-signal-adapter.md", "docs/operations/SIGNAL.md"],
+      "related_files": ["apps/api/src/opn_oracle/integrations/signal_avanza.py", "apps/api/src/opn_oracle/integrations/service.py", "apps/api/src/opn_oracle/integrations/webhooks.py", "docs/architecture/0006-signal-adapter.md", "docs/operations/SIGNAL.md",
+      "apps/api/src/opn_oracle/integrations/routes.py",
+      "src/components/admin/signal-admin.tsx"
+    ],
       "related_migrations": ["apps/api/migrations/versions/20260710_0007_signal_avanza.py"],
-      "related_tests": ["apps/api/tests/test_integration_dependencies.py", "apps/api/tests/test_contract.py"],
+      "related_tests": ["apps/api/tests/test_integration_dependencies.py", "apps/api/tests/test_contract.py",
+      "apps/api/tests/test_signal_connection_admin.py",
+      "src/components/admin/signal-admin.test.tsx"
+    ],
       "implementation_evidence": [{"type": "file", "path": "apps/api/src/opn_oracle/integrations/signal_avanza.py", "claim": "Adaptador desacoplado de Signal.", "confidence": "high"}, {"type": "file", "path": "docs/operations/SIGNAL.md", "claim": "Contrato y operación documentados.", "confidence": "high"}, {"type": "deployment", "path": "docs/implementation/STATUS.md", "claim": "Release b0a80eb reconciliado y sincronización productiva del monitor active/active.", "confidence": "high"}],
       "related_decisions": ["ORC-ADR-0007"],
       "comments": "Se distingue implementación local de activación externa validada.",
@@ -605,7 +611,14 @@
       "created_at": "2026-07-31",
       "updated_at": "2026-08-01",
       "completed_at": "2026-08-01",
-      "history": [{"date": "2026-07-31", "from": "in_progress", "to": "implemented", "summary": "Adaptadores y contrato local observados; integración externa permanece abierta."}, {"date": "2026-08-01", "from": "implemented", "to": "implemented", "summary": "Canario real detecta respuesta 201 con query nula; hotfix de normalización cubierto por contrato y pendiente de redeploy."}, {"date": "2026-08-01", "from": "implemented", "to": "deployed", "summary": "Release productivo, reconciliación idempotente y sincronización real completados con consumer tenant-scoped."}]
+      "history": [{"date": "2026-07-31", "from": "in_progress", "to": "implemented", "summary": "Adaptadores y contrato local observados; integración externa permanece abierta."}, {"date": "2026-08-01", "from": "implemented", "to": "implemented", "summary": "Canario real detecta respuesta 201 con query nula; hotfix de normalización cubierto por contrato y pendiente de redeploy."}, {"date": "2026-08-01", "from": "implemented", "to": "deployed", "summary": "Release productivo, reconciliación idempotente y sincronización real completados con consumer tenant-scoped."},
+      {
+        "date": "2026-08-08",
+        "from": "deployed",
+        "to": "deployed",
+        "summary": "ORA-XENV-ACTIVATE: activate reutiliza _enforce_cross_environment_authorization; identidad de entorno por hostname (+ puerto no estándar), no por ruta. Código y tests en oracle-dev; no se afirma despliegue de este SHA."
+      }
+    ]
     },
     {
       "id": "ORC-SIG-002",

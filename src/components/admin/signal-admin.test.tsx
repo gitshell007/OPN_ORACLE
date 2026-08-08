@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   reconcile: vi.fn(),
   getJob: vi.fn(),
   retryJob: vi.fn(),
+  platformRole: null as string | null,
   /** Real recent.run: intercepts recent_auth_required and retries after reauth. */
   recentRun: vi.fn(async (action: () => Promise<unknown>) => {
     try {
@@ -72,7 +73,7 @@ vi.mock("@/components/auth/recent-auth", () => ({
 }));
 vi.mock("@/components/auth/auth-provider", () => ({
   useAuth: () => ({
-    identity: { user: { platform_role: null } },
+    identity: { user: { platform_role: mocks.platformRole } },
   }),
 }));
 vi.mock("@/components/admin/tenant-admin", () => ({
@@ -117,6 +118,7 @@ describe("SignalAdmin", () => {
   afterEach(cleanup);
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.platformRole = null;
     mocks.connections.mockResolvedValue({ items: [connection] });
     mocks.rotate.mockResolvedValue({ status: "rotated" });
     mocks.test.mockResolvedValue({ outbox_event_id: "event-1", status: "pending" });
@@ -202,7 +204,9 @@ describe("SignalAdmin", () => {
       /desactivad/i,
     );
     fireEvent.click(screen.getByRole("button", { name: /^Activar$/i }));
-    await waitFor(() => expect(mocks.activate).toHaveBeenCalledWith("connection-1"));
+    await waitFor(() =>
+      expect(mocks.activate).toHaveBeenCalledWith("connection-1", expect.any(Object)),
+    );
     fireEvent.click(screen.getByRole("button", { name: /Editar destino/i }));
     fireEvent.change(screen.getByLabelText("Dirección base (URL)"), {
       target: { value: "https://signal.updated.test" },
@@ -325,6 +329,80 @@ describe("SignalAdmin", () => {
     expect(screen.queryByText(/No se pudo configurar la conexión/i)).toBeNull();
   });
 
+  it("activar con 403 de plataforma no usa el genérico de activación", async () => {
+    mocks.activate.mockRejectedValue(
+      apiError(
+        403,
+        "signal_cross_environment_platform_required",
+        "Apuntar Signal a un destino distinto del configurado en este despliegue requiere superadministración de plataforma.",
+      ),
+    );
+    mocks.recentRun.mockImplementation(async (action: () => Promise<unknown>) => action());
+    mocks.connections.mockResolvedValue({
+      items: [
+        {
+          ...connection,
+          status: "disabled",
+          base_url: "https://signal.prod.example",
+        },
+      ],
+    });
+    render(<SignalAdmin />);
+    await screen.findByTestId("connection-status-connection-1");
+    fireEvent.click(screen.getByRole("button", { name: /^Activar$/i }));
+    expect(
+      await screen.findByText(/superadministración de plataforma/i),
+    ).toBeVisible();
+    expect(screen.queryByText(/No se pudo activar la conexión/i)).toBeNull();
+    expect(mocks.activate).toHaveBeenCalledWith("connection-1", expect.anything());
+  });
+
+  it("activar con 422 de confirmación muestra casilla y reintenta al confirmar", async () => {
+    mocks.platformRole = "super_admin";
+    mocks.activate
+      .mockRejectedValueOnce(
+        apiError(
+          422,
+          "signal_cross_environment_confirmation_required",
+          "La URL de Signal no coincide con el entorno de este despliegue. Confirma explícitamente con confirm_cross_environment=true si es intencional.",
+        ),
+      )
+      .mockResolvedValueOnce({
+        ...connection,
+        status: "active",
+        base_url: "https://signal.prod.example",
+      });
+    mocks.recentRun.mockImplementation(async (action: () => Promise<unknown>) => action());
+    mocks.connections.mockResolvedValue({
+      items: [
+        {
+          ...connection,
+          status: "disabled",
+          base_url: "https://signal.prod.example",
+        },
+      ],
+    });
+    render(<SignalAdmin />);
+    await screen.findByTestId("connection-status-connection-1");
+    fireEvent.click(screen.getByRole("button", { name: /^Activar$/i }));
+    const panel = await screen.findByTestId("activate-cross-env-connection-1");
+    expect(panel).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /no coincide con el entorno|confirm_cross_environment|Confirma explícitamente/i,
+    );
+    expect(screen.queryByText(/^No se pudo activar la conexión\.?$/i)).toBeNull();
+    const checkbox = screen.getByRole("checkbox", {
+      name: /Confirmo el uso intencional/i,
+    });
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole("button", { name: /Confirmar y activar/i }));
+    await waitFor(() =>
+      expect(mocks.activate).toHaveBeenLastCalledWith("connection-1", {
+        confirm_cross_environment: true,
+      }),
+    );
+  });
+
   it("create, activate, disable, update y rotate pasan por useRecentAuth", async () => {
     // Active connection → Desactivar visible; then flip list to disabled for Activar.
     mocks.connections.mockResolvedValue({ items: [connection] });
@@ -345,7 +423,9 @@ describe("SignalAdmin", () => {
     await waitFor(() =>
       expect(mocks.recentRun.mock.calls.length).toBeGreaterThan(callsAfterDisable),
     );
-    await waitFor(() => expect(mocks.activate).toHaveBeenCalledWith("connection-1"));
+    await waitFor(() =>
+      expect(mocks.activate).toHaveBeenCalledWith("connection-1", expect.any(Object)),
+    );
 
     // Restore active list for edit/rotate UI (reload after activate may still be disabled mock).
     mocks.connections.mockResolvedValue({ items: [connection] });

@@ -491,17 +491,205 @@ def test_cross_environment_helper_unit() -> None:
         assert not signal_routes._requires_cross_environment_confirmation(
             "https://signal-dev.example"
         )
+        # Misma identidad de host aunque la ruta del despliegue sea /api/v1/oracle.
+        assert not signal_routes._requires_cross_environment_confirmation(
+            "https://signal-dev.example/api/v1/oracle"
+        )
     # oracle-dev corre con APP_ENV=production (DEV_NATIVE_DEPLOY.md): el guardián
     # NO puede depender del entorno, o queda inerte justo donde hace falta.
     app.config["APP_ENV"] = "production"
+    app.config["SIGNAL_AVANZA_BASE_URL"] = "https://signal-dev.example/api/v1/oracle"
     with app.app_context():
         assert signal_routes._requires_cross_environment_confirmation("https://signal.prod.example")
         assert not signal_routes._requires_cross_environment_confirmation(
             "https://signal-dev.example"
         )
+        assert not signal_routes._requires_cross_environment_confirmation(
+            "https://signal-dev.example/api/v1/oracle"
+        )
+        # Puerto no estándar forma parte de la identidad.
+        assert signal_routes._requires_cross_environment_confirmation(
+            "https://signal-dev.example:8443"
+        )
 
     # Sin destino configurado, cualquier https remoto pide confirmación.
     bare = Flask("cross-env-bare")
     bare.config["APP_ENV"] = "production"
+    bare.config["SIGNAL_AVANZA_BASE_URL"] = ""
     with bare.app_context():
         assert signal_routes._requires_cross_environment_confirmation("https://signal.prod.example")
+
+
+def _insert_disabled_connection(
+    app: Any,
+    *,
+    tenant_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    name: str,
+    base_url: str | None,
+    adapter_mode: str = "http",
+) -> uuid.UUID:
+    """Persist a disabled Signal connection (bypasses HTTP create for fixtures)."""
+    connection_id = uuid.uuid4()
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=tenant_id, actor_id=actor_id)),
+    ):
+        db.session.add(
+            IntegrationConnection(
+                id=connection_id,
+                tenant_id=tenant_id,
+                provider="signal-avanza",
+                name=name,
+                status="disabled",
+                adapter_mode=adapter_mode,
+                base_url=base_url,
+            )
+        )
+        db.session.commit()
+    return connection_id
+
+
+def test_owner_cannot_activate_cross_environment_connection(
+    signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """ORA-XENV-ACTIVATE: owner → 403 al activar destino fuera del despliegue."""
+    app, ids, password = signal_admin_stack
+    connection_id = _insert_disabled_connection(
+        app,
+        tenant_id=ids["tenant_a"],
+        actor_id=ids["user_a"],
+        name="cross-prod-disabled",
+        base_url="https://signal.prod.example/api",
+    )
+    client = app.test_client()
+    assert _login(client, "sig-owner-a@example.test", password, ids["tenant_a"]).status_code == 200
+    csrf = _fresh_csrf(app, client, password)
+    denied = client.post(
+        f"/api/v1/integrations/signal-avanza/{connection_id}/activate",
+        json={"confirm_cross_environment": True},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert denied.status_code == 403
+    body = denied.get_json()
+    assert body["code"] == "signal_cross_environment_platform_required"
+    # Status must remain disabled.
+    listed = client.get("/api/v1/integrations/signal-avanza").get_json()["items"]
+    row = next(item for item in listed if item["id"] == str(connection_id))
+    assert row["status"] == "disabled"
+
+
+def test_super_admin_activate_cross_environment_requires_confirm_and_audits(
+    signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """ORA-XENV-ACTIVATE: super_admin sin confirm → 422; con confirm → 200 + audit."""
+    app, ids, password = signal_admin_stack
+    connection_id = _insert_disabled_connection(
+        app,
+        tenant_id=ids["tenant_a"],
+        actor_id=ids["user_super"],
+        name="cross-prod-super",
+        base_url="https://signal.prod.example/api",
+    )
+    client = app.test_client()
+    assert _login(client, "sig-super@example.test", password, ids["tenant_a"]).status_code == 200
+    csrf = _fresh_csrf(app, client, password)
+    missing = client.post(
+        f"/api/v1/integrations/signal-avanza/{connection_id}/activate",
+        json={},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert missing.status_code == 422
+    assert missing.get_json()["code"] == "signal_cross_environment_confirmation_required"
+
+    csrf = _fresh_csrf(app, client, password)
+    activated = client.post(
+        f"/api/v1/integrations/signal-avanza/{connection_id}/activate",
+        json={"confirm_cross_environment": True},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert activated.status_code == 200, activated.get_json()
+    assert activated.get_json()["status"] == "active"
+    assert activated.get_json()["base_url"] == "https://signal.prod.example/api"
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user_super"])),
+    ):
+        events = (
+            db.session.execute(
+                text(
+                    "SELECT actor_id, metadata FROM audit_events "
+                    "WHERE tenant_id=:t AND action='integration.signal.activate' "
+                    "AND resource_id=:rid "
+                    "ORDER BY created_at DESC LIMIT 3"
+                ),
+                {"t": ids["tenant_a"], "rid": connection_id},
+            )
+            .mappings()
+            .all()
+        )
+    assert events
+    meta = events[0]["metadata"]
+    if isinstance(meta, str):
+        import json
+
+        meta = json.loads(meta)
+    assert meta["cross_environment_confirmed"] is True
+    assert meta["authorized_by"]["user_id"] == str(ids["user_super"])
+    assert meta["authorized_by"]["platform_role"] == "super_admin"
+    assert str(events[0]["actor_id"]) == str(ids["user_super"])
+
+
+def test_activate_same_host_different_path_does_not_require_confirmation(
+    signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """Configured …/api/v1/oracle and connection host root are the same environment."""
+    app, ids, password = signal_admin_stack
+    # Fixture SIGNAL_AVANZA_BASE_URL is https://signal-test.local — .local is
+    # exempt from cross-env. Override for this case to a real remote identity.
+    app.config["SIGNAL_AVANZA_BASE_URL"] = "https://signal-dev.example/api/v1/oracle"
+    connection_id = _insert_disabled_connection(
+        app,
+        tenant_id=ids["tenant_a"],
+        actor_id=ids["user_a"],
+        name="same-env-path",
+        base_url="https://signal-dev.example",
+        adapter_mode="mock",
+    )
+    client = app.test_client()
+    assert _login(client, "sig-owner-a@example.test", password, ids["tenant_a"]).status_code == 200
+    csrf = _fresh_csrf(app, client, password)
+    activated = client.post(
+        f"/api/v1/integrations/signal-avanza/{connection_id}/activate",
+        json={},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert activated.status_code == 200, activated.get_json()
+    assert activated.get_json()["status"] == "active"
+    # Restore fixture default for subsequent tests in the module.
+    app.config["SIGNAL_AVANZA_BASE_URL"] = "https://signal-test.local"
+
+
+def test_activate_different_host_stays_blocked_for_owner(
+    signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, password = signal_admin_stack
+    app.config["SIGNAL_AVANZA_BASE_URL"] = "https://signal-dev.example/api/v1/oracle"
+    connection_id = _insert_disabled_connection(
+        app,
+        tenant_id=ids["tenant_a"],
+        actor_id=ids["user_a"],
+        name="other-host",
+        base_url="https://signal.prod.example",
+    )
+    client = app.test_client()
+    assert _login(client, "sig-owner-a@example.test", password, ids["tenant_a"]).status_code == 200
+    csrf = _fresh_csrf(app, client, password)
+    denied = client.post(
+        f"/api/v1/integrations/signal-avanza/{connection_id}/activate",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert denied.status_code == 403
+    assert denied.get_json()["code"] == "signal_cross_environment_platform_required"
+    app.config["SIGNAL_AVANZA_BASE_URL"] = "https://signal-test.local"

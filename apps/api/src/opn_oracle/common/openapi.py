@@ -53,6 +53,17 @@ def declare_problem_responses(spec: dict[Any, Any] | str) -> dict[Any, Any] | st
         ),
         ("/api/v1/dossiers/{dossier_id}/requirements", "post"): "IntelligenceRequirementInput",
         ("/api/v1/dossiers/{dossier_id}/offerings", "post"): "DossierOfferingInput",
+        # Body optional at runtime (empty POST still valid); documented for clients.
+        (
+            "/api/v1/integrations/signal-avanza/{connection_id}/activate",
+            "post",
+        ): "SignalConnectionActivateInput",
+    }
+    optional_request_bodies = {
+        (
+            "/api/v1/integrations/signal-avanza/{connection_id}/activate",
+            "post",
+        ),
     }
     public = {
         "/health/live",
@@ -91,7 +102,7 @@ def declare_problem_responses(spec: dict[Any, Any] | str) -> dict[Any, Any] | st
             schema_name = request_schemas.get((path, method))
             if schema_name:
                 operation["requestBody"] = {
-                    "required": True,
+                    "required": (path, method) not in optional_request_bodies,
                     "content": {
                         "application/json": {
                             "schema": {"$ref": f"#/components/schemas/{schema_name}"}
@@ -630,6 +641,20 @@ def _response_schemas() -> dict[str, Any]:
                 "api_version": {"type": "string"},
                 "adapter_mode": {"type": "string", "enum": ["mock", "http"]},
                 "confirm_cross_environment": {"type": "boolean"},
+            },
+        },
+        "SignalConnectionActivateInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "confirm_cross_environment": {
+                    "type": "boolean",
+                    "description": (
+                        "Obligatorio true cuando base_url de la conexión es un "
+                        "destino Signal distinto del configurado en el despliegue "
+                        "(solo super_admin de plataforma)."
+                    ),
+                },
             },
         },
         "CompetitiveReadinessResponse": {
