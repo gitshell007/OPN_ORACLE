@@ -4871,6 +4871,253 @@ def test_bulk_dossier_delete_clears_report_snapshot_and_artifact_restrict(
     )
 
 
+def test_bulk_dossier_delete_clears_document_job_notification_restrict(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str], tmp_path: Path
+) -> None:
+    """HTTP bulk-delete must clear document/job/notification RESTRICT sibling chains.
+
+    Reproduces the Oracle Dev 422 graph:
+    - document_processing_attempts.background_job_id → background_jobs RESTRICT
+    - evidence.document_id / version / chunk → documents RESTRICT
+    - notifications.job_id → background_jobs RESTRICT
+    """
+
+    app, ids, _ = oracle_stack
+    app.extensions["object_storage"] = LocalObjectStorage(tmp_path / "bulk-delete-docs")
+
+    class CleanScanner:
+        def scan(self, source: Any) -> Any:
+            from opn_oracle.documents.scanner import ScanResult
+
+            source.read(1)
+            return ScanResult("clean", "bulk-delete-clean")
+
+    app.extensions["malware_scanner"] = CleanScanner()
+    owner = _client(oracle_stack)
+    first = _create_dossier(owner, ids, "Bulk-delete doc A")
+    second = _create_dossier(owner, ids, "Bulk-delete doc B")
+    keep = _create_dossier(owner, ids, "Bulk-delete keep")
+    tenant_id = ids["tenant_a"]
+    other_tenant_dossier = uuid.uuid4()
+
+    # Other-tenant control dossier (must survive).
+    engine = create_engine(os.environ["TEST_DATABASE_URL"])
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO strategic_dossiers("
+                "id,tenant_id,workspace_id,title,description,dossier_type,status,strategic_goal,"
+                "geography,sectors,languages,scoring_config,health_score,opportunity_score,"
+                "risk_score,score_explanation,version,synthetic_data,created_at,updated_at"
+                ") VALUES ("
+                ":id,:t,:w,'Otro tenant no tocar','','project','active','control',"
+                "'[]','[]','[]','{}',0,0,0,'{}',1,false,now(),now())"
+            ),
+            {
+                "id": other_tenant_dossier,
+                "t": ids["tenant_b"],
+                "w": ids["workspace_b"],
+            },
+        )
+    engine.dispose()
+
+    uploaded = owner.post(
+        f"/api/v1/dossiers/{first['id']}/documents",
+        data={
+            "classification": "internal",
+            "file": (
+                io.BytesIO(b"Evidencia documental para borrado masivo de expediente."),
+                "bulk-delete-note.txt",
+                "text/plain",
+            ),
+        },
+        headers={"X-CSRF-Token": _csrf(owner)},
+        content_type="multipart/form-data",
+    )
+    assert uploaded.status_code == 202, uploaded.get_json()
+    document = uploaded.get_json()["document"]
+    document_id = uuid.UUID(document["id"])
+    detail = owner.get(f"/api/v1/documents/{document['id']}")
+    assert detail.status_code == 200 and detail.get_json()["status"] == "ready"
+
+    search = owner.get(f"/api/v1/dossiers/{first['id']}/search?q=documental")
+    assert search.status_code == 200 and len(search.get_json()["items"]) >= 1
+    chunk_id = search.get_json()["items"][0]["chunk_id"]
+    evidence = owner.post(
+        f"/api/v1/documents/{document['id']}/create-evidence",
+        json={"chunk_id": chunk_id, "start": 0, "end": 24},
+        headers={"X-CSRF-Token": _csrf(owner)},
+    )
+    assert evidence.status_code == 201, evidence.get_json()
+    evidence_id = evidence.get_json()["id"]
+    assert owner.get(f"/api/v1/evidence/{evidence_id}").status_code == 200
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=tenant_id, actor_id=ids["user"])),
+    ):
+        process_jobs = list(
+            db.session.scalars(
+                select(BackgroundJob).where(
+                    BackgroundJob.tenant_id == tenant_id,
+                    BackgroundJob.dossier_id == uuid.UUID(first["id"]),
+                    BackgroundJob.job_type == "oracle.document.process",
+                )
+            )
+        )
+        assert process_jobs, "document upload must stage a background job on the dossier"
+        job = process_jobs[0]
+        job_id = job.id
+        attempt = db.session.scalar(
+            select(DocumentProcessingAttempt).where(
+                DocumentProcessingAttempt.tenant_id == tenant_id,
+                DocumentProcessingAttempt.background_job_id == job_id,
+            )
+        )
+        assert attempt is not None
+        attempt_id = attempt.id
+        created = create_notification(
+            user_id=ids["user"],
+            notification_type="document.processed",
+            severity="info",
+            title="Documento procesado",
+            body="Notificación enlazada al job del expediente a borrar.",
+            dedupe_key=f"bulk-del-doc-job-{job_id}",
+            dossier_id=uuid.UUID(first["id"]),
+            job_id=job_id,
+            resource_type="document",
+            resource_id=document_id,
+        )
+        notification_id = created.notification.id
+        db.session.commit()
+
+    # Second dossier gets its own staged job + notification (no document required).
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=tenant_id, actor_id=ids["user"])),
+    ):
+        second_job = stage_job(
+            "oracle.dossier_summary.refresh",
+            payload={"dossier_id": second["id"]},
+            idempotency_key=f"bulk-del-summary-{second['id']}",
+            requested_by_user_id=ids["user"],
+            dossier_id=uuid.UUID(second["id"]),
+            resource_type="strategic_dossier",
+            resource_id=uuid.UUID(second["id"]),
+        )
+        second_job_id = second_job.id
+        created_second = create_notification(
+            user_id=ids["user"],
+            notification_type="dossier.summary.ready",
+            severity="info",
+            title="Resumen listo",
+            body="Notificación del segundo expediente.",
+            dedupe_key=f"bulk-del-summary-job-{second_job_id}",
+            dossier_id=uuid.UUID(second["id"]),
+            job_id=second_job_id,
+            resource_type="strategic_dossier",
+            resource_id=uuid.UUID(second["id"]),
+        )
+        second_notification_id = created_second.notification.id
+        db.session.commit()
+
+    ids_to_delete = [first["id"], second["id"]]
+    deleted = owner.post(
+        "/api/v1/dossiers/bulk-delete",
+        json={"dossier_ids": ids_to_delete},
+        headers={"X-CSRF-Token": _csrf(owner)},
+    )
+    assert deleted.status_code == 200, deleted.get_json()
+    body = deleted.get_json()
+    assert set(body["deleted_ids"]) == set(ids_to_delete)
+    assert body["deleted_count"] == 2
+
+    assert owner.get(f"/api/v1/dossiers/{first['id']}").status_code == 404
+    assert owner.get(f"/api/v1/dossiers/{second['id']}").status_code == 404
+    assert owner.get(f"/api/v1/dossiers/{keep['id']}").status_code == 200
+    assert owner.get(f"/api/v1/documents/{document['id']}").status_code == 404
+    assert owner.get(f"/api/v1/evidence/{evidence_id}").status_code == 404
+
+    engine = create_engine(os.environ["TEST_DATABASE_URL"])
+    with engine.connect() as connection:
+        remaining = connection.execute(
+            text("SELECT id FROM strategic_dossiers WHERE id = ANY(:ids)").bindparams(
+                ids=[uuid.UUID(item) for item in ids_to_delete]
+            )
+        ).fetchall()
+        assert remaining == []
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM documents WHERE id = :id"),
+                {"id": document_id},
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM evidence WHERE id = :id"),
+                {"id": uuid.UUID(evidence_id)},
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM document_processing_attempts WHERE id = :id"),
+                {"id": attempt_id},
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM background_jobs WHERE id = ANY(:ids)"),
+                {"ids": [job_id, second_job_id]},
+            ).scalar_one()
+            == 0
+        )
+        # Notifications cascade from dossier; job links must not block that cascade.
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM notifications WHERE id = ANY(:ids)"),
+                {"ids": [notification_id, second_notification_id]},
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM strategic_dossiers WHERE id = :id"),
+                {"id": uuid.UUID(keep["id"])},
+            ).scalar_one()
+            == 1
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM strategic_dossiers WHERE id = :id AND tenant_id = :t"),
+                {"id": other_tenant_dossier, "t": ids["tenant_b"]},
+            ).scalar_one()
+            == 1
+        )
+        audit_rows = (
+            connection.execute(
+                text(
+                    "SELECT tenant_id, dossier_id, resource_id, "
+                    "metadata->>'deleted_dossier_id' AS deleted_id, "
+                    "metadata->>'title' AS title "
+                    "FROM audit_events WHERE action='dossier.deleted' AND resource_id = ANY(:ids)"
+                ).bindparams(ids=[uuid.UUID(item) for item in ids_to_delete])
+            )
+            .mappings()
+            .all()
+        )
+    engine.dispose()
+    assert {str(row["resource_id"]) for row in audit_rows} == set(ids_to_delete)
+    assert all(row["tenant_id"] == tenant_id and row["dossier_id"] is None for row in audit_rows)
+    assert {row["deleted_id"] for row in audit_rows} == set(ids_to_delete)
+    assert {row["title"] for row in audit_rows} == {
+        "Bulk-delete doc A",
+        "Bulk-delete doc B",
+    }
+
+
 def test_signal_many_to_many_review_promote_idempotency_and_audit(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:

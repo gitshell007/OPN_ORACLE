@@ -21,6 +21,8 @@ from opn_oracle.ai.models import (
     AIUsageLedger,
     OpportunityOfferDraft,
 )
+from opn_oracle.documents.models import Document, DocumentProcessingAttempt
+from opn_oracle.integrations.models import SignalSyncRun
 from opn_oracle.oracle.actor_candidates import ACTOR_TYPES, clean_labels
 from opn_oracle.oracle.actor_tax_id import (
     TaxIdConflictError,
@@ -40,6 +42,7 @@ from opn_oracle.oracle.intent import (
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
 from opn_oracle.oracle.links import (
     DossierCollaborator,
+    EvidenceDossier,
     MeetingActor,
     OpportunityActor,
     OpportunitySignal,
@@ -54,6 +57,7 @@ from opn_oracle.oracle.models import (
     DossierObjective,
     DossierProcurementItem,
     DossierSignal,
+    Evidence,
     Hypothesis,
     Meeting,
     Opportunity,
@@ -91,7 +95,13 @@ from opn_oracle.oracle.starter_profiles import (
 )
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.platform.models import Workspace
-from opn_oracle.reporting.models import ReportSnapshotEvidence
+from opn_oracle.reporting.models import (
+    AlertEvaluation,
+    DataExport,
+    Notification,
+    NotificationDelivery,
+    ReportSnapshotEvidence,
+)
 from opn_oracle.tenants.context import require_tenant_id
 
 DOSSIER_TYPES = frozenset(
@@ -1248,14 +1258,29 @@ def delete_dossiers(
     """Permanently remove a bounded, fully authorized set of dossiers.
 
     Most dependent records cascade from ``strategic_dossiers``. Several graphs use
-    RESTRICT between siblings of that cascade (AI context evidence, report
-    snapshot evidence, human reviews, offer drafts, report parent/artifact/job
-    pins, AI usage ledgers, procurement→opportunity links). Those must be
-    cleared or nulled **before** deleting the dossiers; otherwise PostgreSQL
-    raises IntegrityError and the API used to surface a bare 500.
+    RESTRICT between siblings of that cascade and must be cleared **before** the
+    dossier DELETE, or PostgreSQL raises IntegrityError (API maps to 422):
 
-    Audit events deliberately remain: their dossier reference is set to null by
-    the foreign-key policy, while resource id and metadata preserve the trail.
+    Already handled (pre-ORA-DOSSIER-BULK-DELETE follow-up):
+    - AIContextEvidence / ReportSnapshotEvidence on evidence_dossiers
+    - AIHumanReview / OpportunityOfferDraft vs AI artifacts
+    - Report parent/artifact/job pins
+    - AIUsageLedger / AIAuditLog.background_job_id
+    - DossierProcurementItem.linked_opportunity_id
+
+    Document/job sibling chains (ORA-DOSSIER-BULK-DELETE):
+    - document_processing_attempts.background_job_id → background_jobs RESTRICT
+    - evidence.document_id / version / chunk → documents RESTRICT
+    - notifications.job_id / notification_deliveries.job_id → jobs RESTRICT
+    - data_exports.job_id → jobs RESTRICT
+    - signal_sync_runs.job_id → jobs RESTRICT
+    - alert_evaluations.notification_id → notifications RESTRICT (with cascade race)
+    - dossier_procurement_items.evidence_id → evidence RESTRICT (before evidence drop)
+
+    Membership RESTRICT pins (uploader, requester) are not deleted; they only
+    block membership removal, not dossier cascade.
+
+    Audit events remain: dossier_id is set null by FK; metadata keeps id/title.
     """
 
     tenant_id = require_tenant_id()
@@ -1344,6 +1369,35 @@ def delete_dossiers(
                 AIUsageLedger.audit_log_id.in_(audit_ids),
             )
         )
+
+    # --- Jobs / documents of these dossiers (CASCADE targets); clear RESTRICT siblings ---
+    job_ids = list(
+        session.scalars(
+            select(BackgroundJob.id).where(
+                BackgroundJob.tenant_id == tenant_id,
+                BackgroundJob.dossier_id.in_(unique_ids),
+            )
+        )
+    )
+    document_ids = list(
+        session.scalars(
+            select(Document.id).where(
+                Document.tenant_id == tenant_id,
+                Document.dossier_id.in_(unique_ids),
+            )
+        )
+    )
+
+    # AI audit → job RESTRICT: null by dossier and by job id (covers audits with null dossier).
+    if job_ids:
+        session.execute(
+            update(AIAuditLog)
+            .where(
+                AIAuditLog.tenant_id == tenant_id,
+                AIAuditLog.background_job_id.in_(job_ids),
+            )
+            .values(background_job_id=None)
+        )
     session.execute(
         update(AIAuditLog)
         .where(AIAuditLog.tenant_id == tenant_id, AIAuditLog.dossier_id.in_(unique_ids))
@@ -1367,6 +1421,97 @@ def delete_dossiers(
             DossierProcurementItem.dossier_id.in_(unique_ids),
         )
         .values(linked_opportunity_id=None)
+    )
+
+    # document_processing_attempts → jobs RESTRICT (fk_document_attempt_job_tenant)
+    if job_ids:
+        session.execute(
+            delete(DocumentProcessingAttempt).where(
+                DocumentProcessingAttempt.tenant_id == tenant_id,
+                DocumentProcessingAttempt.background_job_id.in_(job_ids),
+            )
+        )
+
+    # Document-sourced evidence RESTRICT on documents (fk_evidence_document_*).
+    # Documents cascade from the dossier; evidence rows do not and block that cascade.
+    # Scope: evidence whose document belongs to a selected dossier (tenant + document_id).
+    # Signal/procurement/memory evidence without document_id is left alone.
+    document_evidence_ids: list[uuid.UUID] = []
+    if document_ids:
+        document_evidence_ids = list(
+            session.scalars(
+                select(Evidence.id).where(
+                    Evidence.tenant_id == tenant_id,
+                    Evidence.document_id.in_(document_ids),
+                )
+            )
+        )
+    if document_evidence_ids:
+        # Procurement pins RESTRICT on evidence_id — drop pins of these dossiers first.
+        session.execute(
+            delete(DossierProcurementItem).where(
+                DossierProcurementItem.tenant_id == tenant_id,
+                DossierProcurementItem.dossier_id.in_(unique_ids),
+                DossierProcurementItem.evidence_id.in_(document_evidence_ids),
+            )
+        )
+        # evidence_dossiers CASCADE on evidence delete; remove join rows first for clarity.
+        session.execute(
+            delete(EvidenceDossier).where(
+                EvidenceDossier.tenant_id == tenant_id,
+                EvidenceDossier.evidence_id.in_(document_evidence_ids),
+            )
+        )
+        session.execute(
+            delete(Evidence).where(
+                Evidence.tenant_id == tenant_id,
+                Evidence.id.in_(document_evidence_ids),
+            )
+        )
+
+    # Notifications / deliveries / exports / signal sync RESTRICT job delete.
+    # Null job links (keep notification rows for audit trail) before jobs cascade away.
+    if job_ids:
+        session.execute(
+            update(Notification)
+            .where(
+                Notification.tenant_id == tenant_id,
+                Notification.job_id.in_(job_ids),
+            )
+            .values(job_id=None)
+        )
+        session.execute(
+            update(NotificationDelivery)
+            .where(
+                NotificationDelivery.tenant_id == tenant_id,
+                NotificationDelivery.job_id.in_(job_ids),
+            )
+            .values(job_id=None)
+        )
+        session.execute(
+            update(DataExport)
+            .where(
+                DataExport.tenant_id == tenant_id,
+                DataExport.job_id.in_(job_ids),
+            )
+            .values(job_id=None)
+        )
+        session.execute(
+            update(SignalSyncRun)
+            .where(
+                SignalSyncRun.tenant_id == tenant_id,
+                SignalSyncRun.job_id.in_(job_ids),
+            )
+            .values(job_id=None)
+        )
+
+    # alert_evaluations CASCADE from dossier but RESTRICT on notification_id —
+    # drop evaluations for these dossiers so notification CASCADE cannot race.
+    session.execute(
+        delete(AlertEvaluation).where(
+            AlertEvaluation.tenant_id == tenant_id,
+            AlertEvaluation.dossier_id.in_(unique_ids),
+        )
     )
 
     deleted_ids: list[uuid.UUID] = []
