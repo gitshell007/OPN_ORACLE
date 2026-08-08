@@ -26,8 +26,45 @@ import { productStatusLabel } from "@/lib/product-copy";
 
 type HealthState = "configured" | "healthy" | "degraded" | "error";
 
-function message(reason: unknown, fallback: string) {
-  return reason instanceof ApiError ? reason.message : fallback;
+/** Map API problems for Signal connection actions (never lump 401/403/422). */
+function signalActionError(reason: unknown, fallback: string): string {
+  if (reason instanceof Error && reason.message === "Reautenticación cancelada") {
+    return "Confirmación de identidad cancelada. Vuelve a intentarlo y confirma tu contraseña.";
+  }
+  if (!(reason instanceof ApiError)) {
+    return fallback;
+  }
+  const code = reason.problem?.code ?? "";
+  if (code === "recent_auth_required" || reason.status === 401) {
+    // recent.run should open the dialog first; if we still surface 401, be explicit.
+    return "Confirma tu contraseña para continuar.";
+  }
+  if (
+    code === "signal_cross_environment_platform_required" ||
+    code === "cross_environment_platform_required"
+  ) {
+    return (
+      reason.problem.detail ||
+      "Apuntar a una instancia de Signal distinta de este despliegue requiere superadministración de plataforma."
+    );
+  }
+  if (
+    code === "cross_environment_confirmation_required" ||
+    code === "signal_cross_environment_confirmation_required" ||
+    (reason.status === 422 && /confirm|confirm/i.test(reason.problem.detail || ""))
+  ) {
+    return (
+      reason.problem.detail ||
+      "Debes confirmar explícitamente el uso de esta URL de Signal (casilla de confirmación)."
+    );
+  }
+  if (reason.status === 403) {
+    return (
+      reason.problem.detail ||
+      "No tienes permiso para esta acción de Signal."
+    );
+  }
+  return reason.problem.detail || reason.message || fallback;
 }
 
 function healthState(connection: SignalConnection): HealthState {
@@ -111,7 +148,7 @@ export function SignalAdmin() {
     const kickoff = window.setTimeout(() => {
       void loadConnections()
         .catch((reason) =>
-          setError(message(reason, "No se pudo cargar Signal Avanza.")),
+          setError(signalActionError(reason, "No se pudo cargar Signal Avanza.")),
         )
         .finally(() => setLoading(false));
     }, 0);
@@ -150,7 +187,7 @@ export function SignalAdmin() {
       const data = await api.signalAvanza.monitors(dossierId.trim());
       setMonitors(data.data);
     } catch (reason) {
-      setError(message(reason, "No se pudieron cargar los monitores."));
+      setError(signalActionError(reason, "No se pudieron cargar los monitores."));
     } finally {
       setBusy(null);
     }
@@ -180,7 +217,7 @@ export function SignalAdmin() {
       await loadConnections();
       toast.success("Conexión Signal Avanza configurada");
     } catch (reason) {
-      setError(message(reason, "No se pudo configurar la conexión."));
+      setError(signalActionError(reason, "No se pudo configurar la conexión."));
     } finally {
       setBusy(null);
     }
@@ -196,7 +233,7 @@ export function SignalAdmin() {
         description: "Es la única conexión Signal activa de la organización.",
       });
     } catch (reason) {
-      setError(message(reason, "No se pudo activar la conexión."));
+      setError(signalActionError(reason, "No se pudo activar la conexión."));
     } finally {
       setBusy(null);
     }
@@ -210,7 +247,7 @@ export function SignalAdmin() {
       await loadConnections();
       toast.success("Conexión desactivada");
     } catch (reason) {
-      setError(message(reason, "No se pudo desactivar la conexión."));
+      setError(signalActionError(reason, "No se pudo desactivar la conexión."));
     } finally {
       setBusy(null);
     }
@@ -235,7 +272,7 @@ export function SignalAdmin() {
       await loadConnections();
       toast.success("Destino de Signal actualizado");
     } catch (reason) {
-      setError(message(reason, "No se pudo actualizar la conexión."));
+      setError(signalActionError(reason, "No se pudo actualizar la conexión."));
     } finally {
       setBusy(null);
     }
@@ -258,7 +295,7 @@ export function SignalAdmin() {
         description: "El secreto anterior ya no se muestra ni se recupera.",
       });
     } catch (reason) {
-      setError(message(reason, "No se pudo rotar la credencial."));
+      setError(signalActionError(reason, "No se pudo rotar la credencial."));
     } finally {
       setBusy(null);
     }
@@ -274,7 +311,7 @@ export function SignalAdmin() {
         description: "Actualiza el diagnóstico para consultar el resultado.",
       });
     } catch (reason) {
-      setError(message(reason, "La prueba de conexión no se pudo completar."));
+      setError(signalActionError(reason, "La prueba de conexión no se pudo completar."));
     } finally {
       setBusy(null);
     }
@@ -290,7 +327,7 @@ export function SignalAdmin() {
       await loadMonitors();
       toast.success("Monitor creado");
     } catch (reason) {
-      setError(message(reason, "No se pudo crear el monitor."));
+      setError(signalActionError(reason, "No se pudo crear el monitor."));
     } finally {
       setBusy(null);
     }
@@ -322,7 +359,7 @@ export function SignalAdmin() {
           : "Estado solicitado",
       );
     } catch (reason) {
-      setError(message(reason, "No se pudo completar la acción del monitor."));
+      setError(signalActionError(reason, "No se pudo completar la acción del monitor."));
     } finally {
       setBusy(null);
     }
@@ -337,7 +374,7 @@ export function SignalAdmin() {
         description: `${result.requeued} entregas pendientes reencoladas.`,
       });
     } catch (reason) {
-      setError(message(reason, "No se pudo reconciliar la conexión."));
+      setError(signalActionError(reason, "No se pudo reconciliar la conexión."));
     } finally {
       setBusy(null);
     }
@@ -358,7 +395,7 @@ export function SignalAdmin() {
         },
       }));
     } catch (reason) {
-      setError(message(reason, "El proceso no admite reintento."));
+      setError(signalActionError(reason, "El proceso no admite reintento."));
     }
   }
 

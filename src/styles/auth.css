@@ -873,28 +873,46 @@
     width: 100%;
   }
 }
+/*
+ * Radix Dialog portals Overlay and Content as siblings (not nested).
+ * Content must be position:fixed + z-index above the overlay; otherwise it
+ * paints in document flow (often bottom-left) under the dimmed backdrop and
+ * behind the product sidebar (z-index 40–80).
+ */
 .reauth-overlay {
   position: fixed;
-  z-index: 120;
+  z-index: 200;
   inset: 0;
   background: #07111fc7;
-  display: grid;
-  place-items: center;
-  padding: 20px;
 }
 .reauth-dialog {
-  width: min(440px, 100%);
+  position: fixed;
+  z-index: 201;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   background: white;
+  border: 1px solid var(--va-border, #d7e3f1);
   border-radius: 12px;
   padding: 24px;
   box-shadow: 0 24px 70px #0006;
 }
-.reauth-dialog h2 {
-  margin-bottom: 8px;
+.reauth-dialog h2,
+.reauth-dialog [class*="Title"] {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--va-text, #102033);
 }
-.reauth-dialog > p {
+.reauth-dialog > p,
+.reauth-dialog [class*="Description"] {
+  margin: 0 0 14px;
   color: var(--nav-muted, #556272);
   font-size: 14px;
+  line-height: 1.45;
 }
 .reauth-dialog form {
   display: grid;
@@ -903,6 +921,7 @@
 .reauth-dialog form > div {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 9px;
   margin-top: 5px;
 }

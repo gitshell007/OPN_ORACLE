@@ -91,11 +91,16 @@ export function RecentAuthProvider({
         }}
       >
         <Dialog.Portal>
-          <Dialog.Overlay className="reauth-overlay" />
-          <Dialog.Content className="reauth-dialog">
+          <Dialog.Overlay className="reauth-overlay" data-testid="reauth-overlay" />
+          <Dialog.Content
+            className="reauth-dialog"
+            data-testid="reauth-dialog"
+            aria-describedby="reauth-dialog-description"
+          >
             <Dialog.Title>Confirma tu identidad</Dialog.Title>
-            <Dialog.Description>
+            <Dialog.Description id="reauth-dialog-description">
               Esta acción afecta a la seguridad o al acceso de otras personas.
+              Confirma tu contraseña para continuar.
             </Dialog.Description>
             <form onSubmit={confirmIdentity}>
               <label className="field">
