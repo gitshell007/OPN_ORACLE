@@ -22,7 +22,7 @@ Densidad: `data-density=compact|comfortable` reduce/amplía solo el eje vertical
 | `.vector-panel-body--flush` | Cuerpo sin padding (tablas, listas edge-to-edge) |
 | `.vector-panel-strip` | Franja full-bleed bajo la cabecera; el **texto** sigue el mismo `pad-x` |
 
-El cuerpo normal alinea su inicio horizontal con el contenido de la cabecera.  
+El cuerpo normal alinea su inicio horizontal con el contenido de la cabecera.
 Los paneles anidados no deben envolver el hijo con un segundo body del padre.
 
 ## Excepciones full-bleed (intencionales)
@@ -47,5 +47,18 @@ Clasificación de usos productivos que **no** reciben body inset ciego:
 
 ## Pruebas
 
-- Playwright: `tests/e2e/vector-panel-insets.spec.ts` (bounding boxes / padding computado)
-- Componentes: body region en profile y actor-discovery
+Evidencia principal (rutas reales autenticadas, harness E2E):
+
+- `tests/e2e/vector-panel-insets.spec.ts` abre `/app/dossiers/{id}` y
+  `/app/dossiers/{id}/actors` con seed `owner@oracle-e2e.test` / Asterion E2E.
+- Mide bounding boxes y padding computado (panel, header, body, texto, CTA, strip).
+- Capturas en `docs/ui/panel-insets-captures/` nombradas por ruta y viewport
+  (`dossier-summary-profile-desktop-1440.png`, etc.).
+
+Auxiliar: el bloque «auxiliary contract fixture» del mismo spec no sustituye
+las rutas reales.
+
+CI: el job `frontend-e2e` **no** corre en `push` a `oracle-dev` (solo PR→master
+y `workflow_dispatch`). Para evidencia GHA de este E2E hace falta dispatch o PR.
+
+Componentes: body region en profile y actor-discovery (unit).

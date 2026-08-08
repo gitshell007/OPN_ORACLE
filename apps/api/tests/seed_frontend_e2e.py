@@ -117,6 +117,8 @@ def seed() -> None:
         # G-20-B E2E: market dossier with discovery profile + candidate artifact fixture.
         # Real API/DB seed (no browser network mock). Playwright opens this dossier.
         _seed_g20b_market_actor_fixture(tenant_id=tenant_id, owner_id=owner_id)
+        # ORA-UI-PANEL-INSETS: market with discovery intent but no job/artifact (idle empty).
+        _seed_market_discovery_idle_fixture(tenant_id=tenant_id, owner_id=owner_id)
         # G-14: only dossier/profile/evidence; Playwright launches the real AI job.
         _seed_g14_opportunity_fixtures(tenant_id=tenant_id, owner_id=owner_id)
 
@@ -269,6 +271,47 @@ def _seed_g20b_market_actor_fixture(
             output_hash=digest,
         )
         db.session.add(artifact)
+        db.session.commit()
+
+
+def _seed_market_discovery_idle_fixture(*, tenant_id, owner_id) -> None:
+    """Market dossier with discovery profile and no AI artifact (idle empty UI)."""
+
+    import uuid
+
+    from opn_oracle.oracle.models import StrategicDossier
+    from opn_oracle.platform.models import Workspace
+    from opn_oracle.tenants.context import TenantContext, tenant_context
+
+    with tenant_context(
+        TenantContext(
+            tenant_id=tenant_id,
+            actor_id=owner_id,
+            platform_access=False,
+            access_reason="panel-insets-e2e-seed",
+        )
+    ):
+        ws = db.session.query(Workspace).filter_by(tenant_id=tenant_id, slug="principal").one()
+        db.session.add(
+            StrategicDossier(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id,
+                workspace_id=ws.id,
+                title="ORA-UI Market discovery idle E2E",
+                description="Fixture desechable: discovery sin job (empty body + CTA)",
+                dossier_type="market",
+                status="active",
+                owner_user_id=owner_id,
+                profile_config={
+                    "discovery_intent": (
+                        "empresas de materiales avanzados en la península ibérica"
+                    ),
+                    "discovery_actor_type": "company",
+                    "own_offer": "Oferta propia de ejemplo para perfil en lectura.",
+                    "decision_to_make": "Priorizar alianzas de suministro.",
+                },
+            )
+        )
         db.session.commit()
 
 

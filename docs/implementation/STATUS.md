@@ -10,9 +10,14 @@ Rama: `oracle-dev` (canal `oracle-dev`)
   con tokens `--vector-panel-pad-x/y` alineados a la cabecera (`docs/ui/vector-panel-anatomy.md`).
 - Migrados: ActorDiscoveryPanel, DossierProfilePanel (lectura), situación del
   expediente, Oráculo, home onboarding/side; listas full-bleed documentadas.
-- Playwright `tests/e2e/vector-panel-insets.spec.ts` (bounding boxes / padding).
-- Capturas: `docs/ui/panel-insets-captures/` (before sin inset + after 1440/1024/390).
-- **No desplegado.** Sin tocar Horizon, backend ni auth.
+- **Evidencia E2E real** (no fixture HTML): `tests/e2e/vector-panel-insets.spec.ts`
+  autentica, abre `/app/dossiers/{id}` y `/actors` (seed Asterion E2E), mide
+  bounding boxes/padding y escribe capturas por ruta+viewport en
+  `docs/ui/panel-insets-captures/`. Fixture sintético solo como auxiliar.
+- Seed: `ORA-UI Market discovery idle E2E` (idle vacío + perfil).
+- GHA: job `frontend-e2e` **omitido en push a oracle-dev**; evidencia Actions
+  requiere PR→master o `workflow_dispatch`.
+- **No desplegado.**
 
 
 ## ORA-CI-GATE · CI en push a `oracle-dev` (2026-08-08) · **workflow en rama; runs GHA pendientes**

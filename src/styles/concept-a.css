@@ -8513,18 +8513,20 @@ html[data-font-scale="small"] .workspace-chip strong {
 
 .actor-discovery-panel-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-3) var(--space-4);
   /* Matches .vector-panel > header inset tokens */
   padding: var(--vector-panel-pad-y-header, var(--space-3))
     var(--vector-panel-pad-x, var(--space-4));
   border-bottom: 1px solid var(--va-border);
+  min-width: 0;
 }
 
 .actor-discovery-panel-intro {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 1 12rem;
 }
 
 .actor-discovery-panel-intro h2 {
@@ -8536,6 +8538,7 @@ html[data-font-scale="small"] .workspace-chip strong {
   margin: 0;
   max-width: 52rem;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .actor-discovery-panel-actions {
@@ -8544,7 +8547,9 @@ html[data-font-scale="small"] .workspace-chip strong {
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .actor-discovery-status.status-badge {
@@ -8553,7 +8558,8 @@ html[data-font-scale="small"] .workspace-chip strong {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.01em;
-  white-space: nowrap;
+  white-space: normal;
+  max-width: 100%;
 }
 
 .actor-discovery-status.is-failed {
